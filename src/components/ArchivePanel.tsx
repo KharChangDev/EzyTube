@@ -338,21 +338,6 @@ function PartsModal({ item, onClose }: { item: ArchiveItem; onClose: () => void 
     loadParts();
   }, [item]);
 
-  const handleDownloadAll = async () => {
-    const config = github.getConfig();
-    if (!config) return;
-
-    for (const part of parts) {
-      if (part.download_url) {
-        const a = document.createElement('a');
-        a.href = part.download_url;
-        a.download = part.name;
-        a.click();
-        await new Promise(r => setTimeout(r, 500));
-      }
-    }
-  };
-
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
       <div className="bg-cns-bg border border-cns-primary/30 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden">
@@ -402,15 +387,7 @@ function PartsModal({ item, onClose }: { item: ArchiveItem; onClose: () => void 
           )}
         </div>
         <div className="p-4 border-t border-cns-primary/30 flex gap-2">
-          <button
-            onClick={handleDownloadAll}
-            disabled={loading || parts.length === 0}
-            className="system-btn flex-1 justify-center"
-          >
-            <Download size={10} />
-            <span dir="rtl">دانلود همه</span>
-          </button>
-          <button onClick={onClose} className="system-btn">
+          <button onClick={onClose} className="system-btn flex-1">
             <span dir="rtl">بستن</span>
           </button>
         </div>
