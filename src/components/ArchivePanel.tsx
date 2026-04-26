@@ -76,13 +76,14 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
                   const thumbFile = downloads.find(d => d.path === thumbPath || d.name === thumbPath);
                   console.log('Found thumbnail file:', thumbFile);
                   if (thumbFile && thumbFile.download_url) {
-                    metadata.thumbnail = thumbFile.download_url;
+                    // Strip token from download_url to avoid expiration
+                    metadata.thumbnail = thumbFile.download_url.split('?')[0];
                     console.log('Using download_url:', metadata.thumbnail);
                   } else {
-                    // Fallback: construct GitHub raw URL
+                    // Fallback: construct GitHub raw URL without token
                     const config = github.getConfig();
                     if (config) {
-                      metadata.thumbnail = `https://raw.githubusercontent.com/${config.owner}/${config.repo}/main/downloads/${thumbPath}`;
+                      metadata.thumbnail = `https://raw.githubusercontent.com/${config.owner}/${config.repo}/main/downloads/${encodeURIComponent(thumbPath)}`;
                       console.log('Using fallback URL:', metadata.thumbnail);
                     }
                   }
@@ -131,12 +132,13 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
                       // Try to find matching file in downloads
                       const thumbFile = downloads.find(d => d.path === thumbPath || d.name === thumbPath);
                       if (thumbFile && thumbFile.download_url) {
-                        metadata.thumbnail = thumbFile.download_url;
+                        // Strip token from download_url to avoid expiration
+                        metadata.thumbnail = thumbFile.download_url.split('?')[0];
                       } else {
-                        // Fallback: construct GitHub raw URL
+                        // Fallback: construct GitHub raw URL without token
                         const config = github.getConfig();
                         if (config) {
-                          metadata.thumbnail = `https://raw.githubusercontent.com/${config.owner}/${config.repo}/main/downloads/${thumbPath}`;
+                          metadata.thumbnail = `https://raw.githubusercontent.com/${config.owner}/${config.repo}/main/downloads/${encodeURIComponent(thumbPath)}`;
                         }
                       }
                     }
