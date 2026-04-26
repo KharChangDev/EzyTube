@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent } from 'react';
-import { Play, Music, Video, Check } from 'lucide-react';
+import { Play, Music, Video } from 'lucide-react';
 import { fa } from '../lib/i18n';
 import { DownloadJob, github } from '../lib/github';
 import { cn } from '../lib/utils';
@@ -150,7 +150,6 @@ export function InputNode({ onSubmit, disabled }: InputNodeProps) {
               )}
             >
               <span className="min-w-0 flex-1 text-left" dir="ltr">{opt.label}</span>
-              {quality === opt.value && <Check size={12} className="text-cns-primary" />}
             </button>
           ))}
         </div>
@@ -173,8 +172,7 @@ export function InputNode({ onSubmit, disabled }: InputNodeProps) {
                 )}
               >
                 <Icon size={15} />
-                <span dir="rtl">{opt.label}</span>
-                {format === opt.value && <Check size={11} className="text-cns-primary" />}
+                <span dir="ltr">{opt.label}</span>
               </button>
             );
           })}
