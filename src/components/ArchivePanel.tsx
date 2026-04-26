@@ -184,29 +184,55 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
         .filter(d => d.type === 'file' && d.name.includes('.part') && d.name.startsWith(baseName))
         .sort((a, b) => a.name.localeCompare(b.name));
 
+      console.log('Base name:', baseName);
+      console.log('Found parts:', parts.map(p => ({ name: p.name, size: p.size })));
+
       if (parts.length === 0) {
         alert('هیچ بخشی یافت نشد');
         return;
       }
 
-      const chunks: ArrayBuffer[] = [];
-      for (const part of parts) {
-        if (part.download_url) {
-          const response = await fetch(part.download_url);
-          const buffer = await response.arrayBuffer();
-          chunks.push(buffer);
-        }
+      // Get GitHub token for authenticated requests
+      const config = github.getConfig();
+      if (!config) {
+        alert('خطا: تنظیمات گیت‌هاب یافت نشد');
+        return;
       }
 
+      const chunks: ArrayBuffer[] = [];
+      for (const part of parts) {
+        console.log('Downloading:', part.name, 'size:', part.size);
+        // Use raw URL with authentication for large files
+        const rawUrl = `https://raw.githubusercontent.com/${config.owner}/${config.repo}/main/${part.path}`;
+        const response = await fetch(rawUrl, {
+          headers: {
+            'Authorization': `token ${config.token}`,
+          },
+        });
+        
+        if (!response.ok) {
+          console.error('Failed to fetch:', part.name, response.status);
+          continue;
+        }
+        
+        const buffer = await response.arrayBuffer();
+        console.log('Downloaded buffer size:', buffer.byteLength);
+        chunks.push(buffer);
+      }
+
+      console.log('Total chunks:', chunks.length, 'Total size:', chunks.reduce((acc, c) => acc + c.byteLength, 0));
+
       const combined = new Blob(chunks, { type: 'application/octet-stream' });
+      console.log('Combined blob size:', combined.size);
       const url = URL.createObjectURL(combined);
       const a = document.createElement('a');
       a.href = url;
       a.download = item.name;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      alert('خطا در ترکیب بخش‌ها');
+    } catch (error) {
+      console.error('Error combining parts:', error);
+      alert('خطا در ترکیب بخش‌ها: ' + (error as Error).message);
     } finally {
       setCombining(null);
     }
