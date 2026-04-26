@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Terminal, Radio, Archive, Settings, AlertTriangle } from 'lucide-react';
+import { Terminal, Radio, Archive, Settings } from 'lucide-react';
 import { fa } from './lib/i18n';
 import { github, DownloadJob } from './lib/github';
 import { cn } from './lib/utils';
@@ -7,6 +7,21 @@ import { InputNode } from './components/InputNode';
 import { SignalFeed } from './components/SignalFeed';
 import { ArchivePanel } from './components/ArchivePanel';
 import { SettingsModal } from './components/SettingsModal';
+
+const MATRIX_COLUMNS = [
+  '101001011001',
+  'CNS-STREAM',
+  '010110100111',
+  'WORKFLOW',
+  '110010101001',
+  'SIGNAL-FEED',
+  '001011011010',
+  'ARCHIVE-NODE',
+  '010011100101',
+  'DOWNLOAD',
+  '100110101010',
+  'GITHUB-ACT',
+] as const;
 
 function App() {
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
@@ -27,146 +42,202 @@ function App() {
   const handleJobUpdate = useCallback((jobId: string, updates: Partial<DownloadJob>) => {
     setJobs(prev => {
       const job = prev.find(j => j.id === jobId);
-      // Refresh archive when job completes successfully
       if (job && updates.status === 'success' && job.status !== 'success') {
         setTimeout(() => setArchiveRefreshKey(k => k + 1), 1000);
       }
+
       return prev.map(j => j.id === jobId ? { ...j, ...updates } : j);
     });
   }, []);
 
-  
+  const activeJobs = jobs.filter(job => job.status === 'pending' || job.status === 'running').length;
+  const completedJobs = jobs.filter(job => job.status === 'success').length;
+  const heroMetrics = [
+    { label: 'LIVE', value: String(activeJobs) },
+    { label: 'DONE', value: String(completedJobs) },
+    { label: 'SYNC', value: hasConfig ? 'ONLINE' : 'OFFLINE' },
+  ];
+
   return (
-    <div className="min-h-screen bg-cns-bg p-4 md:p-6">
+    <div className="min-h-screen bg-cns-bg p-4 text-cns-primary md:p-6">
       <div className="green-tint" />
-      
-      {/* Header */}
-      <header className="cns-header">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="glitch-text rgb-shift" data-text={fa.app.title}>
-              {fa.app.title}
-            </h1>
-            <div className="subtitle mt-1">{fa.app.subtitle}</div>
-          </div>
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            className={cn(
-              "system-btn corner-accent",
-              !hasConfig && "animate-flicker border-cns-warning text-cns-warning"
-            )}
+      <div className="matrix-rain" aria-hidden="true">
+        {MATRIX_COLUMNS.map((column, index) => (
+          <span
+            key={`${column}-${index}`}
+            className="matrix-column"
+            style={{
+              right: `${4 + index * 8}%`,
+              animationDelay: `${(index % 6) * -3.2}s`,
+              animationDuration: `${16 + (index % 5) * 3}s`,
+            }}
           >
-            <Settings size={14} className="inline ml-2" />
-            {fa.actions.settings}
-          </button>
-        </div>
-      </header>
-
-      {/* Warning Banner */}
-      <div className="alert-box mb-6 corner-accent">
-        <div className="flex items-start gap-3">
-          <AlertTriangle size={16} className="text-cns-warning flex-shrink-0 mt-0.5" />
-          <div className="text-xs leading-relaxed">
-            <div className="text-cns-warning mb-1">[WARNING]</div>
-            {fa.warnings.tos}
-          </div>
-        </div>
-      </div>
-
-      {/* Mobile Navigation */}
-      <div className="md:hidden flex gap-2 mb-4">
-        {[
-          { id: 'input', label: fa.input.label, icon: Terminal },
-          { id: 'feed', label: fa.feed.label, icon: Radio },
-          { id: 'archive', label: fa.archive.label, icon: Archive },
-        ].map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id as typeof activeTab)}
-            className={cn(
-              "system-btn flex-1 text-xs py-3",
-              activeTab === id && "bg-cns-dim border-cns-primary"
-            )}
-          >
-            <Icon size={14} className="inline ml-1" />
-            {label}
-          </button>
+            {column}
+          </span>
         ))}
       </div>
+      <div className="shell-grid" />
+      <div className="shell-glow" />
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-        {/* Input Node */}
-        <div className={cn(
-          "md:col-span-4",
-          activeTab !== 'input' && 'hidden md:block'
-        )}>
-          <div className="section-label">
-            <Terminal size={12} />
-            {fa.input.label}
-          </div>
-          <div className="cns-panel corner-accent p-4">
-            <InputNode 
-              onSubmit={handleJobSubmit}
-              disabled={!hasConfig}
-            />
-          </div>
-        </div>
+      <div className="relative mx-auto max-w-7xl">
+        <header className="hero-shell corner-accent mb-6">
+          <div className="hero-grid">
+            <div className="hero-stack">
+              {(activeJobs > 0 || hasConfig) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {activeJobs > 0 && (
+                    <span className="status-pill success" dir="rtl">
+                      <span className="status-dot" />
+                      {`${activeJobs.toLocaleString('fa-IR')} سیگنال فعال`}
+                    </span>
+                  )}
+                  {hasConfig && (
+                    <span className="status-pill success" dir="rtl">
+                      اتصال گیت‌هاب برقرار
+                    </span>
+                  )}
+                </div>
+              )}
 
-        {/* Signal Feed */}
-        <div className={cn(
-          "md:col-span-5",
-          activeTab !== 'feed' && 'hidden md:block'
-        )}>
-          <div className="section-label">
-            <Radio size={12} className={jobs.some(j => j.status === 'running') ? 'animate-pulse-signal' : ''} />
-            {fa.feed.label}
-            {jobs.some(j => j.status === 'running') && (
-              <span className="signal-active text-cns-highlight mr-2">
-                {jobs.filter(j => j.status === 'running').length} ACTIVE
-              </span>
+              <div className="space-y-3">
+                <h1 className="hero-title" dir="rtl">
+                  {fa.app.title}
+                </h1>
+                <div className="hero-commandline">
+                  <span className="hero-command" dir="rtl">
+                    {hasConfig
+                      ? 'لینک را ثبت کنید، کیفیت را انتخاب کنید و اجرا را از همین صفحه دنبال کنید.'
+                      : 'راه‌اندازی اولیه را کامل کنید تا گره دریافت فعال شود.'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="hero-console">
+              <div className="console-grid">
+                {heroMetrics.map((metric) => (
+                  <div key={metric.label} className="console-tile">
+                    <span>{metric.label}</span>
+                    <strong>{metric.value}</strong>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className={cn(
+                  "system-btn w-full justify-center",
+                  !hasConfig && "border-cns-warning text-cns-warning"
+                )}
+              >
+                <Settings size={14} className="ml-2" />
+                <span dir="rtl">{fa.actions.settings}</span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+          <section
+            className={cn(
+              "panel-shell flex flex-col md:col-span-4",
+              activeTab !== 'input' && 'hidden md:flex'
             )}
-          </div>
-          <div className="cns-panel corner-accent p-4 min-h-[400px]">
-            <SignalFeed 
-              jobs={jobs}
-              onUpdate={handleJobUpdate}
-            />
-          </div>
+          >
+            <div className="panel-head">
+              <div>
+                <div className="section-label">
+                  <Terminal size={12} />
+                </div>
+                <p className="panel-subtitle" dir="rtl">
+                  لینک را وارد کنید، کیفیت را مشخص کنید و فرمان دریافت را به workflow بفرستید.
+                </p>
+              </div>
+              <span className="panel-index" dir="ltr">01</span>
+            </div>
+            <div className="panel-body p-4 md:p-5">
+              <InputNode
+                onSubmit={handleJobSubmit}
+                disabled={!hasConfig}
+              />
+            </div>
+          </section>
+
+          <section
+            className={cn(
+              "panel-shell flex flex-col md:col-span-5 md:min-h-[620px]",
+              activeTab !== 'feed' && 'hidden md:flex'
+            )}
+          >
+            <div className="panel-head">
+              <div>
+                <div className="section-label">
+                  <Radio size={12} className={activeJobs > 0 ? 'animate-pulse-signal' : ''} />
+                  {activeJobs > 0 && (
+                    <span className="signal-active mr-2 text-cns-highlight">
+                      <span dir="ltr">{activeJobs.toLocaleString('fa-IR')} LIVE</span>
+                    </span>
+                  )}
+                </div>
+                <p className="panel-subtitle" dir="rtl">
+                  {activeJobs > 0
+                    ? `${activeJobs.toLocaleString('fa-IR')} عملیات در حال پیگیری است و لاگ‌ها به صورت خودکار تازه می‌شوند.`
+                    : 'به محض ثبت اولین لینک، لاگ‌های اجرای workflow در این بخش ظاهر می‌شوند.'}
+                </p>
+              </div>
+              <span className="panel-index" dir="ltr">02</span>
+            </div>
+            <div className="panel-body p-4 md:p-5">
+              <SignalFeed
+                jobs={jobs}
+                onUpdate={handleJobUpdate}
+              />
+            </div>
+          </section>
+
+          <section
+            className={cn(
+              "panel-shell flex flex-col md:col-span-3 md:min-h-[620px]",
+              activeTab !== 'archive' && 'hidden md:flex'
+            )}
+          >
+            <div className="panel-head">
+              <div>
+                <div className="section-label">
+                  <Archive size={12} />
+                </div>
+                <p className="panel-subtitle" dir="rtl">
+                  خروجی‌های ذخیره‌شده، تصویر بندانگشتی و عملیات دانلود یا حذف در همین ستون.
+                </p>
+              </div>
+              <span className="panel-index" dir="ltr">03</span>
+            </div>
+            <div className="panel-body p-4 md:p-5">
+              <ArchivePanel refreshKey={archiveRefreshKey} />
+            </div>
+          </section>
         </div>
 
-        {/* Archive */}
-        <div className={cn(
-          "md:col-span-3",
-          activeTab !== 'archive' && 'hidden md:block'
-        )}>
-          <div className="section-label">
-            <Archive size={12} />
-            {fa.archive.label}
+        <footer className="system-footer mt-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <span dir="ltr">CNS v1.0.0</span>
+              <span className="footer-divider" />
+              <span dir="rtl">{fa.warnings.rateLimit}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={cn("status-pill", hasConfig ? "success" : "muted")} dir="rtl">
+                {hasConfig ? 'اتصال آماده' : 'نیاز به تنظیمات'}
+              </span>
+              <span className="status-pill" dir="rtl">
+                {completedJobs.toLocaleString('fa-IR')} دریافت موفق
+              </span>
+            </div>
           </div>
-          <div className="cns-panel corner-accent p-4 min-h-[400px]">
-            <ArchivePanel refreshKey={archiveRefreshKey} />
-          </div>
-        </div>
+        </footer>
       </div>
 
-      {/* Footer */}
-      <footer className="mt-8 pt-4 border-t border-cns-deep text-xs text-cns-deep">
-        <div className="flex items-center justify-between">
-          <div>
-            CNS v1.0.0 // SYSTEM READY
-          </div>
-          <div className="flex items-center gap-4">
-            <span>{fa.warnings.rateLimit}</span>
-            <span className={hasConfig ? 'text-cns-primary' : 'text-cns-warning'}>
-              {hasConfig ? 'CONN: ESTABLISHED' : 'CONN: NONE'}
-            </span>
-          </div>
-        </div>
-      </footer>
-
-      {/* Settings Modal */}
-      <SettingsModal 
+      <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => {
           setIsSettingsOpen(false);
