@@ -60,6 +60,14 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
               const metaContent = await github.getFileContent(metaPath);
               if (metaContent) {
                 metadata = JSON.parse(metaContent.content);
+                // Convert local thumbnail path to GitHub URL
+                if (metadata.thumbnail && metadata.thumbnail.startsWith('downloads/')) {
+                  const thumbPath = metadata.thumbnail.replace('downloads/', '');
+                  const thumbFile = downloads.find(d => d.path === thumbPath);
+                  if (thumbFile && thumbFile.download_url) {
+                    metadata.thumbnail = thumbFile.download_url;
+                  }
+                }
               }
             } catch {
               // No metadata
@@ -89,6 +97,15 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
                     const originalExt = metadata.ext || 'mp4';
                     const isVideo = ['mp4', 'webm', 'mkv', 'mov'].includes(originalExt);
                     const isAudio = ['mp3', 'm4a', 'wav', 'ogg', 'flac'].includes(originalExt);
+                    
+                    // Convert local thumbnail path to GitHub URL
+                    if (metadata.thumbnail && metadata.thumbnail.startsWith('downloads/')) {
+                      const thumbPath = metadata.thumbnail.replace('downloads/', '');
+                      const thumbFile = downloads.find(d => d.path === thumbPath);
+                      if (thumbFile && thumbFile.download_url) {
+                        metadata.thumbnail = thumbFile.download_url;
+                      }
+                    }
                     
                     videoItems.push({
                       name: `${base}.${originalExt}`,
