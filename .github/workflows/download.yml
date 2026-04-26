@@ -235,6 +235,41 @@ jobs:
           rm -f downloads/*.info.json
           rm -f downloads/*.webp downloads/*.png
 
+      - name: Split large files
+        run: |
+          # Split files >100MB into 50MB chunks
+          MAX_SIZE=$((100 * 1024 * 1024))  # 100MB
+          CHUNK_SIZE=$((50 * 1024 * 1024))  # 50MB
+          
+          cd downloads
+          for file in *; do
+            if [ -f "$file" ]; then
+              size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null || echo 0)
+              if [ "$size" -gt "$MAX_SIZE" ]; then
+                echo "Splitting large file: $file ($(numfmt --to=iec-i --suffix=B $size 2>/dev/null || echo $size bytes))"
+                
+                # Split file into 50MB chunks
+                base="${file%.*}"
+                ext="${file##*.}"
+                split -b "$CHUNK_SIZE" "$file" "${base}.part"
+                
+                # Count parts
+                part_count=$(ls -1 "${base}.part"* 2>/dev/null | wc -l)
+                
+                # Remove original file
+                rm -f "$file"
+                
+                # Update metadata
+                if [ -f "${base}.json" ]; then
+                  python3 -c "import json; f=open('${base}.json','r'); d=json.load(f); f.close(); d['split']=True; d['parts']=$part_count; d['original_size']=$size; f=open('${base}.json','w'); json.dump(d,f,indent=2); f.close()"
+                fi
+                
+                echo "Split into $part_count parts"
+              fi
+            fi
+          done
+          cd ..
+
       - name: Commit and push
         run: |
           git config user.name "CNS Downloader"

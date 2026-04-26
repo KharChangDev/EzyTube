@@ -187,8 +187,9 @@ body::after {
 }
 
 @keyframes indeterminate {
-  0% { transform: translateX(-110%); }
-  100% { transform: translateX(320%); }
+  0% { transform: translateX(0); }
+  50% { transform: translateX(135%); }
+  100% { transform: translateX(0); }
 }
 
 @keyframes matrixFall {
@@ -983,6 +984,7 @@ body::after {
 }
 
 .capacity-meter.indeterminate .fill {
+  position: absolute;
   width: 35%;
   animation: indeterminate 1.5s ease-in-out infinite;
 }
