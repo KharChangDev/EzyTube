@@ -120,10 +120,22 @@ jobs:
               --cookies cookies.txt \
               "$URL"
           else
-            # Video download
+            # Video download - add fallback for Shorts
             OUTPUT_TEMPLATE="downloads/%(title)s.%(ext)s"
             yt-dlp \
               --format "$QUALITY_OPT" \
+              --merge-output-format "$FORMAT" \
+              --output "$OUTPUT_TEMPLATE" \
+              --write-info-json \
+              --write-thumbnail \
+              --convert-thumbnails jpg \
+              --cookies cookies.txt \
+              --retries 3 \
+              --fragment-retries 3 \
+              "$URL" || \
+            # Fallback: try with worst quality if best fails (Shorts compatibility)
+            yt-dlp \
+              --format "worstvideo+worstaudio/worst" \
               --merge-output-format "$FORMAT" \
               --output "$OUTPUT_TEMPLATE" \
               --write-info-json \
