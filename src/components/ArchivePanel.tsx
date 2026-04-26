@@ -47,8 +47,8 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
 
       for (const item of downloads) {
         if (item.type === 'file') {
-          // Skip .part files (they are chunks of split files)
-          if (item.name.includes('.part')) continue;
+          // Skip .z* files (they are split zip parts)
+          if (item.name.match(/\.z[0-9]+$/)) continue;
 
           const ext = item.name.split('.').pop()?.toLowerCase();
           const isVideo = ['mp4', 'webm', 'mkv', 'mov'].includes(ext || '');
@@ -194,12 +194,12 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
     try {
       await github.deleteFile(item.path, item.sha);
 
-      // If file is split, delete all parts
+      // If file is split, delete all zip parts
       if (item.metadata?.split) {
         const base = item.path.replace(/\.[^/.]+$/, '');
         const downloads = await github.getDownloads();
         for (const part of downloads) {
-          if (part.type === 'file' && part.name.includes('.part') && part.name.startsWith(base)) {
+          if (part.type === 'file' && (part.name === `${base.split('/').pop()}.zip` || part.name.match(new RegExp(`^${base.split('/').pop()}\\.z[0-9]+$`)))) {
             try {
               await github.deleteFile(part.path, part.sha);
             } catch {
@@ -378,7 +378,7 @@ function PartsModal({ item, onClose }: { item: ArchiveItem; onClose: () => void 
         const baseName = base.split('/').pop() || base;
         const downloads = await github.getDownloads();
         const partFiles = downloads
-          .filter(d => d.type === 'file' && d.name.includes('part') && d.name.endsWith('.zip') && d.name.startsWith(baseName))
+          .filter(d => d.type === 'file' && (d.name === `${baseName}.zip` || d.name.match(new RegExp(`^${baseName}\\.z[0-9]+$`))))
           .sort((a, b) => a.name.localeCompare(b.name));
         setParts(partFiles);
       } catch {
@@ -411,12 +411,12 @@ function PartsModal({ item, onClose }: { item: ArchiveItem; onClose: () => void 
             <>
               <div className="mb-4 p-3 bg-cns-bg/50 rounded border border-cns-primary/20 text-xs">
                 <p className="text-cns-highlight mb-2" dir="rtl">نحوه ترکیب فایل‌ها:</p>
-                <p className="text-cns-deep mb-1" dir="rtl">1. همه بخش‌ها را دانلود کنید</p>
-                <p className="text-cns-deep mb-1" dir="rtl">2. همه فایل‌های zip را اکسترکت کنید</p>
-                <p className="text-cns-deep mb-1" dir="rtl">3. در ترمینال اجرا کنید:</p>
+                <p className="text-cns-deep mb-1" dir="rtl">1. همه بخش‌ها را دانلود کنید (.zip, .z01, .z02, ...)</p>
+                <p className="text-cns-deep mb-1" dir="rtl">2. در ترمینال اجرا کنید:</p>
                 <code className="block mt-2 p-2 bg-black/30 rounded text-cns-primary font-mono text-[10px]" dir="ltr">
-                  copy /b part01+part02+part03+... filename.mp4
+                  zip -s 0 filename.zip --out complete.zip
                 </code>
+                <p className="text-cns-deep mt-2 mb-1" dir="rtl">3. فایل complete.zip را اکسترکت کنید</p>
               </div>
               <div className="space-y-2">
                 {parts.map((part) => (
