@@ -254,11 +254,18 @@ jobs:
                 zip_file="${base}.zip"
                 zip -q "$zip_file" "$file"
                 
-                # Split zip file into 50MB chunks
-                split -b "$CHUNK_SIZE" "$zip_file" "${base}.zip.part"
+                # Split zip file into 50MB chunks with numeric suffixes
+                split -b "$CHUNK_SIZE" -d -a 2 "$zip_file" "${base}part"
+                
+                # Rename parts to .zip extension
+                part_num=1
+                for part in ${base}part*; do
+                  mv "$part" "${base}part$(printf '%02d' $part_num).zip"
+                  part_num=$((part_num + 1))
+                done
                 
                 # Count parts
-                part_count=$(ls -1 "${base}.zip.part"* 2>/dev/null | wc -l)
+                part_count=$(ls -1 "${base}part"*.zip 2>/dev/null | wc -l)
                 
                 # Remove original file and zip
                 rm -f "$file" "$zip_file"

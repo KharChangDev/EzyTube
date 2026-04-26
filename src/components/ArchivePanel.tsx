@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Download, Trash2, FileVideo, FileAudio, FolderX, RefreshCw, Package } from 'lucide-react';
+import { Download, Trash2, FileVideo, FileAudio, FolderX, RefreshCw, Package, X } from 'lucide-react';
 import { fa } from '../lib/i18n';
 import { github } from '../lib/github';
-import JSZip from 'jszip';
 
 interface ArchiveItem {
   name: string;
@@ -31,7 +30,7 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
   const [items, setItems] = useState<ArchiveItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [combining, setCombining] = useState<string | null>(null);
+  const [showPartsModal, setShowPartsModal] = useState<ArchiveItem | null>(null);
 
   useEffect(() => {
     loadItems();
@@ -176,97 +175,8 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
     }
   };
 
-  const handleCombine = async (item: ArchiveItem) => {
-    setCombining(item.path);
-    try {
-      // Extract base name from item (could be JSON path or file path)
-      const base = item.path.replace(/\.json$/, '').replace(/\.[^/.]+$/, '');
-      const baseName = base.split('/').pop() || base;
-      const isZip = item.metadata?.zip;
-      const partSuffix = isZip ? '.zip.part' : '.part';
-      const downloads = await github.getDownloads();
-      const parts = downloads
-        .filter(d => d.type === 'file' && d.name.includes(partSuffix) && d.name.startsWith(baseName))
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      console.log('Base name:', baseName, 'isZip:', isZip);
-      console.log('Found parts:', parts.map(p => ({ name: p.name, size: p.size })));
-
-      if (parts.length === 0) {
-        alert('هیچ بخشی یافت نشد');
-        return;
-      }
-
-      // Get GitHub token for authenticated requests
-      const config = github.getConfig();
-      if (!config) {
-        alert('خطا: تنظیمات گیت‌هاب یافت نشد');
-        return;
-      }
-
-      const chunks: ArrayBuffer[] = [];
-      for (const part of parts) {
-        console.log('Downloading:', part.name, 'size:', part.size);
-        // Use GitHub API with raw media type to avoid CORS
-        const apiUrl = `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${part.path}`;
-        const response = await fetch(apiUrl, {
-          headers: {
-            'Authorization': `token ${config.token}`,
-            'Accept': 'application/vnd.github.v3.raw',
-          },
-        });
-        
-        if (!response.ok) {
-          console.error('Failed to fetch:', part.name, response.status);
-          continue;
-        }
-        
-        const buffer = await response.arrayBuffer();
-        console.log('Downloaded buffer size:', buffer.byteLength);
-        chunks.push(buffer);
-      }
-
-      console.log('Total chunks:', chunks.length, 'Total size:', chunks.reduce((acc, c) => acc + c.byteLength, 0));
-
-      const combined = new Blob(chunks, { type: 'application/octet-stream' });
-      console.log('Combined blob size:', combined.size);
-
-      if (isZip) {
-        // Extract zip file
-        console.log('Extracting zip...');
-        const zip = await JSZip.loadAsync(combined);
-        const files = Object.keys(zip.files);
-        console.log('Files in zip:', files);
-        
-        // Find the original file (first file in zip)
-        const originalFileName = files[0];
-        if (!originalFileName) {
-          alert('خطا: فایلی در zip یافت نشد');
-          return;
-        }
-        
-        const fileData = await zip.file(originalFileName)!.async('blob');
-        const url = URL.createObjectURL(fileData);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = item.name;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        // Direct download for non-zip
-        const url = URL.createObjectURL(combined);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = item.name;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch (error) {
-      console.error('Error combining parts:', error);
-      alert('خطا در ترکیب بخش‌ها: ' + (error as Error).message);
-    } finally {
-      setCombining(null);
-    }
+  const handleShowParts = (item: ArchiveItem) => {
+    setShowPartsModal(item);
   };
 
   const formatSize = (bytes: number): string => {
@@ -365,12 +275,11 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
               <div className="mt-3 flex gap-2">
                 {item.metadata?.split ? (
                   <button
-                    onClick={() => handleCombine(item)}
-                    disabled={combining === item.path}
+                    onClick={() => handleShowParts(item)}
                     className="system-btn flex-1 justify-center"
                   >
-                    <Package size={10} className={combining === item.path ? 'animate-spin' : ''} />
-                    <span dir="rtl">{combining === item.path ? 'در حال ترکیب...' : 'ترکیب و دانلود'}</span>
+                    <Package size={10} />
+                    <span dir="rtl">{item.metadata.parts} بخش - دانلود</span>
                   </button>
                 ) : item.download_url && (
                   <a
@@ -393,6 +302,98 @@ export function ArchivePanel({ refreshKey }: ArchivePanelProps) {
             </article>
           );
         })}
+      </div>
+
+      {showPartsModal && (
+        <PartsModal
+          item={showPartsModal}
+          onClose={() => setShowPartsModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PartsModal({ item, onClose }: { item: ArchiveItem; onClose: () => void }) {
+  const [parts, setParts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadParts = async () => {
+      setLoading(true);
+      try {
+        const base = item.path.replace(/\.json$/, '').replace(/\.[^/.]+$/, '');
+        const baseName = base.split('/').pop() || base;
+        const downloads = await github.getDownloads();
+        const partFiles = downloads
+          .filter(d => d.type === 'file' && d.name.includes('part') && d.name.endsWith('.zip') && d.name.startsWith(baseName))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setParts(partFiles);
+      } catch {
+        setParts([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadParts();
+  }, [item]);
+
+  const handleDownloadAll = async () => {
+    const config = github.getConfig();
+    if (!config) return;
+
+    for (const part of parts) {
+      if (part.download_url) {
+        const a = document.createElement('a');
+        a.href = part.download_url;
+        a.download = part.name;
+        a.click();
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      <div className="bg-cns-bg border border-cns-primary/30 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden">
+        <div className="p-4 border-b border-cns-primary/30 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm text-cns-highlight font-mono" dir="ltr">{item.name}</h3>
+            <p className="text-xs text-cns-primary mt-1" dir="rtl">{parts.length} بخش برای دانلود</p>
+          </div>
+          <button onClick={onClose} className="system-btn">
+            <X size={14} />
+          </button>
+        </div>
+        <div className="p-4 overflow-y-auto max-h-[60vh]">
+          {loading ? (
+            <div className="text-center text-xs text-cns-primary" dir="rtl">در حال بارگذاری...</div>
+          ) : parts.length === 0 ? (
+            <div className="text-center text-xs text-cns-primary" dir="rtl">هیچ بخشی یافت نشد</div>
+          ) : (
+            <div className="space-y-2">
+              {parts.map((part) => (
+                <div key={part.path} className="flex items-center justify-between p-2 bg-cns-bg/50 rounded border border-cns-primary/20">
+                  <span className="text-xs font-mono text-cns-deep" dir="ltr">{part.name}</span>
+                  <span className="text-xs text-cns-primary" dir="ltr">{(part.size / 1024 / 1024).toFixed(1)} MB</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="p-4 border-t border-cns-primary/30 flex gap-2">
+          <button
+            onClick={handleDownloadAll}
+            disabled={loading || parts.length === 0}
+            className="system-btn flex-1 justify-center"
+          >
+            <Download size={10} />
+            <span dir="rtl">دانلود همه</span>
+          </button>
+          <button onClick={onClose} className="system-btn">
+            <span dir="rtl">بستن</span>
+          </button>
+        </div>
       </div>
     </div>
   );
