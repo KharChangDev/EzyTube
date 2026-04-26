@@ -82,23 +82,21 @@ function App() {
       <div className="relative mx-auto max-w-7xl">
         <header className="flex items-center justify-between mb-6 p-4 border border-cns-primary/30 rounded-lg bg-cns-bg">
           <h1 className="text-lg font-mono text-cns-highlight" dir="rtl">{fa.app.title}</h1>
-          <div className="flex items-center gap-3">
-            <div className="flex gap-2">
-              {heroMetrics.map((metric) => (
-                <div key={metric.label} className="console-tile" dir="ltr">
-                  <span>{metric.label}</span>
-                  <strong>{metric.value}</strong>
-                </div>
-              ))}
-            </div>
+          <div className="flex items-center gap-2">
+            {heroMetrics.map((metric) => (
+              <div key={metric.label} className="console-tile" dir="ltr">
+                <span>{metric.label}</span>
+                <strong>{metric.value}</strong>
+              </div>
+            ))}
             <button
               onClick={() => setIsSettingsOpen(true)}
               className={cn(
-                "system-btn",
+                "console-tile cursor-pointer",
                 !hasConfig && "border-cns-warning text-cns-warning"
               )}
             >
-              <Settings size={14} />
+              <Settings size={20} />
             </button>
           </div>
         </header>
