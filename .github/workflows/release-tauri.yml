@@ -40,8 +40,8 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
         TZ: UTC
       run: |
-        apt-get update
-        apt-get install -y \
+        sudo apt-get update
+        sudo apt-get install -y \
           ca-certificates \
           curl \
           file \
@@ -73,8 +73,8 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
         TZ: UTC
       run: |
-        apt-get update
-        apt-get install -y \
+        sudo apt-get update
+        sudo apt-get install -y \
           libgtk-3-dev \
           libwebkit2gtk-4.0-dev \
           libjavascriptcoregtk-4.0-dev \
