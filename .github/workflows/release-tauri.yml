@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - "v*"
+    - "v*"
 
 jobs:
   build-tauri:
@@ -14,75 +14,75 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            container: ""
-            args: --target aarch64-apple-darwin
-          - platform: macos-latest
-            container: ""
-            args: --target x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            container: ubuntu:20.04
-            args: --bundles appimage,deb
-          - platform: windows-latest
-            container: ""
-            args: ""
+        - platform: macos-latest
+          container: ""
+          args: --target aarch64-apple-darwin
+        - platform: macos-latest
+          container: ""
+          args: --target x86_64-apple-darwin
+        - platform: ubuntu-22.04
+          container: ubuntu:20.04
+          args: --bundles appimage,deb
+        - platform: windows-latest
+          container: ""
+          args: ""
 
     runs-on: ${{ matrix.platform }}
     container: ${{ matrix.container }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: Install Linux base tools
-        if: matrix.platform == 'ubuntu-22.04'
-        env:
-          DEBIAN_FRONTEND: noninteractive
-          TZ: UTC
-        run: |
-          apt-get update
-          apt-get install -y curl file build-essential pkg-config
+    - name: Install Linux base tools
+      if: matrix.platform == 'ubuntu-22.04'
+      env:
+        DEBIAN_FRONTEND: noninteractive
+        TZ: UTC
+      run: |
+        apt-get update
+        apt-get install -y curl file build-essential pkg-config
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: npm
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - name: Install Linux system packages
-        if: matrix.platform == 'ubuntu-22.04'
-        env:
-          DEBIAN_FRONTEND: noninteractive
-          TZ: UTC
-        run: |
-          apt-get update
-          apt-get install -y \
-            libgtk-3-dev \
-            libwebkit2gtk-4.0-dev \
-            libjavascriptcoregtk-4.0-dev \
-            libsoup2.4-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
+    - name: Install Linux system packages
+      if: matrix.platform == 'ubuntu-22.04'
+      env:
+        DEBIAN_FRONTEND: noninteractive
+        TZ: UTC
+      run: |
+        apt-get update
+        apt-get install -y \
+          libgtk-3-dev \
+          libwebkit2gtk-4.0-dev \
+          libjavascriptcoregtk-4.0-dev \
+          libsoup2.4-dev \
+          libappindicator3-dev \
+          librsvg2-dev \
+          patchelf
 
-      - name: Install frontend dependencies
-        run: npm ci
+    - name: Install frontend dependencies
+      run: npm ci
 
-      - name: Build Tauri bundles
-        uses: tauri-apps/tauri-action@v0.6.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: app-v__VERSION__
-          releaseName: CNS Desktop v__VERSION__
-          releaseBody: |
-            Desktop bundles for Windows, macOS, and Linux.
-            Download asset that matches your operating system.
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+    - name: Build Tauri bundles
+      uses: tauri-apps/tauri-action@v0.6.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tagName: app-v__VERSION__
+        releaseName: CNS Desktop v__VERSION__
+        releaseBody: |
+          Desktop bundles for Windows, macOS, and Linux.
+          Download asset that matches your operating system.
+        releaseDraft: true
+        prerelease: false
+        args: ${{ matrix.args }}
