@@ -200,10 +200,9 @@ body::after {
   75% { text-shadow: 1px 0 #ff3b3b, -1px 0 #a3c2a0; }
 }
 
-@keyframes indeterminate {
-  0% { transform: translateX(0); }
-  50% { transform: translateX(135%); }
-  100% { transform: translateX(0); }
+@keyframes meterFlow {
+  0% { background-position: 0 0; }
+  100% { background-position: 120px 0; }
 }
 
 @keyframes matrixFall {
@@ -413,10 +412,6 @@ body::after {
   background: linear-gradient(180deg, rgba(255, 59, 59, 0.08), rgba(255, 59, 59, 0.03));
   font-size: 12px;
   box-shadow: inset 0 0 0 1px rgba(255, 59, 59, 0.04);
-}
-
-.distort-img {
-  filter: contrast(1.2) brightness(0.9) sepia(0.3) hue-rotate(50deg);
 }
 
 .system-flag {
@@ -1001,13 +996,24 @@ body::after {
   height: 100%;
   width: 0%;
   background: linear-gradient(90deg, rgba(95, 122, 92, 0.8), rgba(143, 175, 140, 0.95));
-  transition: width 0.3s;
+  transition: width 0.4s ease;
 }
 
-.capacity-meter.indeterminate .fill {
-  position: absolute;
-  width: 35%;
-  animation: indeterminate 1.5s ease-in-out infinite;
+.capacity-meter.active .fill {
+  width: 100%;
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(95, 122, 92, 0.9) 0,
+    rgba(95, 122, 92, 0.9) 24px,
+    rgba(143, 175, 140, 0.98) 24px,
+    rgba(143, 175, 140, 0.98) 48px
+  );
+  background-size: 120px 100%;
+  animation: meterFlow 1.2s linear infinite;
+}
+
+.capacity-meter.complete .fill {
+  width: 100%;
 }
 
 .thumb-frame {
