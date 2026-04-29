@@ -1,6 +1,6 @@
 <div align="center">
 
-![CNS Logo](https://private-user-images.githubusercontent.com/279085014/583855249-1f29a8e0-98a1-4794-b66c-4a09db94c055.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3Nzc0OTAxOTIsIm5iZiI6MTc3NzQ4OTg5MiwicGF0aCI6Ii8yNzkwODUwMTQvNTgzODU1MjQ5LTFmMjlhOGUwLTk4YTEtNDc5NC1iNjZjLTRhMDlkYjk0YzA1NS5wbmc_WC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBVkNPRFlMU0E1M1BRSzRaQSUyRjIwMjYwNDI5JTJGdXMtZWFzdC0xJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI2MDQyOVQxOTExMzJaJlgtQW16LUV4cGlyZXM9MzAwJlgtQW16LVNpZ25hdHVyZT1jNTVkYTM2ZTliMmU4YzdkYTM0NDZlODkyYTM2NTkyMjI5ZDY2NjhmMDBmMGU3NjUwYWU5YjM0MjVjYTc0ZTBmJlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZyZXNwb25zZS1jb250ZW50LXR5cGU9aW1hZ2UlMkZwbmcifQ.CmcZ0-gxk384h6WefRNwu-n_6fRwi8OLvC_WSZUgnyg)
+<img width="1815" height="570" alt="CNS ASCII" src="https://github.com/user-attachments/assets/1f29a8e0-98a1-4794-b66c-4a09db94c055"/>
 
 [![Downloads](https://img.shields.io/github/downloads/MercilessMarcel/CNS/total?style=flat-square&logo=github)](https://github.com/MercilessMarcel/CNS/releases/)
 [![Last Version](https://img.shields.io/github/release/MercilessMarcel/CNS/all.svg?style=flat-square)](https://github.com/MercilessMarcel/CNS/releases/)
@@ -12,6 +12,11 @@
 ## سی‌ان‌اس چیست؟
 
 سی‌ان‌اس یک ابزار قدرتمند برای دانلود ویدیوهای یوتیوب با استفاده از زیرساخت گیت‌هاب است. سی‌ان‌اس به شما این امکان را می‌دهد که بدون نیاز به وی‌پی‌ان و با سرعت بالا، ویدیوهای مورد نظر خود را دانلود و مدیریت کنید. این برنامه از قدرت سرورهای گیت‌هاب برای دانلود بهره می‌برد و حتی با اینترنت کند، تجربه دانلود سریع و پایداری را ارائه می‌دهد.
+
+
+<img width="1926" height="1558" alt="CNS Showcase" src="https://github.com/user-attachments/assets/4ac1f205-2ec9-488a-9fc8-d63f1b0b9c23" />
+
+
 
 ## 🚀 امکانات اصلی
 
