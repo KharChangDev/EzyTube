@@ -207,6 +207,17 @@ GitHub محدودیت استفاده در ساعت دارد
 - [github-sandbox](https://github.com/maanimis/github-sandbox) - ایده اصلی استفاده از GitHub Actions
 - [sandbox](https://github.com/nscl5/sandbox/) - روش تقسیم‌بندی فایل‌ها
 
+ابزارها و منابع مورد استفاده:
+
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - موتور دانلود ویدیو
+- [Tauri](https://tauri.app) - فریم‌ورک اپلیکیشن دسکتاپ
+- [React](https://react.dev) - رابط کاربری
+- [Vite](https://vitejs.dev) - ابزار ساخت
+- [Tailwind CSS](https://tailwindcss.com) - استایل‌دهی
+- [Vazirmatn](https://github.com/rastikerdar/vazirmatn) - فونت فارسی
+- [JetBrains Mono](https://www.jetbrains.com/lp/mono/) - فونت monospace
+- [Lucide](https://lucide.dev) - آیکون‌ها
+
 تشکر ویژه از تمام توسعه‌دهندگان.
 
 ## 🎯 حمایت از پروژه
