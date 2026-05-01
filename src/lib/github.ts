@@ -462,6 +462,13 @@ export interface DownloadJob {
   createdAt: string;
   githubRunId?: number;
   githubLiveStep?: string;
+  submitKey?: string;
+  dispatchAt?: string;
+  runHint?: {
+    afterTs: number;
+    quality: string;
+    format: string;
+  };
   meta?: {
     title?: string;
     channel?: string;
@@ -476,10 +483,23 @@ export interface GitHubConfig {
   repo: string;
 }
 
+type CookieHealth = {
+  ok: boolean;
+  reason?: string;
+};
+
 class GitHubClient {
   private config: GitHubConfig | null = null;
   private workflowEnsured = false;
   private getCache = new Map<string, { ts: number; etag?: string; data: unknown }>();
+  private inFlightGet = new Map<string, Promise<any>>();
+  private hotEndpointCache = new Map<string, { ts: number; data: any }>();
+  private hotEndpointRefresh = new Map<string, Promise<any>>();
+  private workflowEnsureTs = 0;
+  private archiveContentCache = new Map<string, { ts: number; value: { content: string; sha: string } | null }>();
+  private archiveContentInFlight = new Map<string, Promise<{ content: string; sha: string } | null>>();
+  private commitTimeCache = new Map<string, { ts: number; value: string | null }>();
+  private commitTimeInFlight = new Map<string, Promise<string | null>>();
 
   private getTauriInvoke():
     | ((command: string, payload?: Record<string, unknown>) => Promise<any>)
@@ -516,6 +536,21 @@ class GitHubClient {
       if (firstKey) this.getCache.delete(firstKey);
     }
     this.getCache.set(key, { ts: Date.now(), etag: etag || undefined, data });
+  }
+
+  private inflightGetKey(tokenScope: string, path: string): string {
+    return `${tokenScope}:${path}`;
+  }
+
+  private getHotCache<T>(key: string, ttlMs: number): T | null {
+    const hit = this.hotEndpointCache.get(key);
+    if (!hit) return null;
+    if (Date.now() - hit.ts > ttlMs) return null;
+    return hit.data as T;
+  }
+
+  private setHotCache(key: string, data: any) {
+    this.hotEndpointCache.set(key, { ts: Date.now(), data });
   }
 
   async hydrateSecureConfig(): Promise<GitHubConfig | null> {
@@ -859,13 +894,25 @@ class GitHubClient {
     return this.requestWithRetry(path, options, 3);
   }
 
+  private async requestCoalesced(path: string, tokenScope: string): Promise<any> {
+    const key = this.inflightGetKey(tokenScope, path);
+    const existing = this.inFlightGet.get(key);
+    if (existing) return existing;
+    const p = this.request(path).finally(() => {
+      this.inFlightGet.delete(key);
+    });
+    this.inFlightGet.set(key, p);
+    return p;
+  }
+
   async triggerWorkflow(url: string, quality: string, format: string): Promise<number> {
     const config = this.getConfig();
     if (!config) throw new CNSError('GitHub config not set', ErrorCodes.CONFIG_MISSING, false);
 
-    if (!this.workflowEnsured) {
+    if (!this.workflowEnsured || Date.now() - this.workflowEnsureTs > 120000) {
       await this.ensureWorkflow(config.token, config.owner, config.repo);
       this.workflowEnsured = true;
+      this.workflowEnsureTs = Date.now();
     }
 
     let targetHost = '';
@@ -957,15 +1004,76 @@ class GitHubClient {
     }
   }
 
+  private async triggerWorkflowWithTimeout(
+    url: string,
+    quality: string,
+    format: string,
+    timeoutMs: number
+  ): Promise<number> {
+    const run = this.triggerWorkflow(url, quality, format);
+    let timer = 0;
+    const timeout = new Promise<number>((_, reject) => {
+      timer = window.setTimeout(() => reject(new Error('Dispatch timeout')), timeoutMs);
+    });
+    try {
+      return await Promise.race([run, timeout]);
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+
+  async triggerWorkflowFast(
+    url: string,
+    quality: string,
+    format: string
+  ): Promise<{ status: number; dispatchAt: string; runHint: { afterTs: number; quality: string; format: string } }> {
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const status = await this.triggerWorkflowWithTimeout(url, quality, format, 12000);
+        const now = Date.now();
+        return {
+          status,
+          dispatchAt: new Date(now).toISOString(),
+          runHint: { afterTs: now - 5000, quality, format },
+        };
+      } catch (err) {
+        lastErr = err;
+        if (attempt < 2) {
+          const wait = 260 + Math.floor(Math.random() * 440) + attempt * 300;
+          await new Promise((resolve) => setTimeout(resolve, wait));
+        }
+      }
+    }
+    throw (lastErr instanceof Error ? lastErr : new Error('Workflow dispatch failed'));
+  }
+
   async getWorkflowRuns(): Promise<any[]> {
     const config = this.getConfig();
     if (!config) throw new Error('GitHub config not set');
+    const endpointKey = `runs:${config.owner}/${config.repo}`;
+    const path = `/repos/${config.owner}/${config.repo}/actions/runs?workflow_id=download.yml&per_page=25`;
+    const tokenScope = `${config.owner}/${config.repo}`;
+    const cached = this.getHotCache<any[]>(endpointKey, 2500);
+    if (cached) {
+      if (!this.hotEndpointRefresh.has(endpointKey)) {
+        const refresh = this.requestCoalesced(path, tokenScope)
+          .then((data) => {
+            const runs = data.workflow_runs || [];
+            this.setHotCache(endpointKey, runs);
+            return runs;
+          })
+          .finally(() => this.hotEndpointRefresh.delete(endpointKey));
+        this.hotEndpointRefresh.set(endpointKey, refresh);
+      }
+      return cached;
+    }
 
     try {
-      const data = await this.request(
-        `/repos/${config.owner}/${config.repo}/actions/runs?workflow_id=download.yml&per_page=25`
-      );
-      return data.workflow_runs || [];
+      const data = await this.requestCoalesced(path, tokenScope);
+      const runs = data.workflow_runs || [];
+      this.setHotCache(endpointKey, runs);
+      return runs;
     } catch (err) {
       logger.warn('[GitHub] getWorkflowRuns failed', {
         error: err,
@@ -979,11 +1087,28 @@ class GitHubClient {
   async getWorkflowRunJobs(runId: number): Promise<any[]> {
     const config = this.getConfig();
     if (!config) throw new Error('GitHub config not set');
+    const endpointKey = `runjobs:${config.owner}/${config.repo}:${runId}`;
+    const path = `/repos/${config.owner}/${config.repo}/actions/runs/${runId}/jobs?per_page=100`;
+    const tokenScope = `${config.owner}/${config.repo}`;
+    const cached = this.getHotCache<any[]>(endpointKey, 2200);
+    if (cached) {
+      if (!this.hotEndpointRefresh.has(endpointKey)) {
+        const refresh = this.requestCoalesced(path, tokenScope)
+          .then((data) => {
+            const jobs = data.jobs || [];
+            this.setHotCache(endpointKey, jobs);
+            return jobs;
+          })
+          .finally(() => this.hotEndpointRefresh.delete(endpointKey));
+        this.hotEndpointRefresh.set(endpointKey, refresh);
+      }
+      return cached;
+    }
 
-    const data = await this.request(
-      `/repos/${config.owner}/${config.repo}/actions/runs/${runId}/jobs?per_page=100`
-    );
-    return data.jobs || [];
+    const data = await this.requestCoalesced(path, tokenScope);
+    const jobs = data.jobs || [];
+    this.setHotCache(endpointKey, jobs);
+    return jobs;
   }
 
   async getJobLogsText(jobId: number): Promise<string | null> {
@@ -1022,12 +1147,29 @@ class GitHubClient {
   async getDownloads(): Promise<any[]> {
     const config = this.getConfig();
     if (!config) throw new Error('GitHub config not set');
+    const endpointKey = `downloads:${config.owner}/${config.repo}`;
+    const path = `/repos/${config.owner}/${config.repo}/contents/downloads`;
+    const tokenScope = `${config.owner}/${config.repo}`;
+    const cached = this.getHotCache<any[]>(endpointKey, 2500);
+    if (cached) {
+      if (!this.hotEndpointRefresh.has(endpointKey)) {
+        const refresh = this.requestCoalesced(path, tokenScope)
+          .then((data) => {
+            const list = Array.isArray(data) ? data : [];
+            this.setHotCache(endpointKey, list);
+            return list;
+          })
+          .finally(() => this.hotEndpointRefresh.delete(endpointKey));
+        this.hotEndpointRefresh.set(endpointKey, refresh);
+      }
+      return cached;
+    }
 
     try {
-      const data = await this.request(
-        `/repos/${config.owner}/${config.repo}/contents/downloads`
-      );
-      return Array.isArray(data) ? data : [];
+      const data = await this.requestCoalesced(path, tokenScope);
+      const list = Array.isArray(data) ? data : [];
+      this.setHotCache(endpointKey, list);
+      return list;
     } catch (err) {
       logger.warn('[GitHub] downloads listing failed', {
         error: err,
@@ -1042,17 +1184,33 @@ class GitHubClient {
   async getFileCommitTime(path: string): Promise<string | null> {
     const config = this.getConfig();
     if (!config) return null;
-    try {
-      const data = await this.request(
-        `/repos/${config.owner}/${config.repo}/commits?path=${encodeURIComponent(path)}&per_page=1`
-      );
-      if (Array.isArray(data) && data.length > 0) {
-        return data[0]?.commit?.committer?.date ?? data[0]?.commit?.author?.date ?? null;
-      }
-      return null;
-    } catch {
-      return null;
+    const key = `${config.owner}/${config.repo}:${path}`;
+    const cached = this.commitTimeCache.get(key);
+    if (cached && Date.now() - cached.ts < 20_000) {
+      return cached.value;
     }
+    const inFlight = this.commitTimeInFlight.get(key);
+    if (inFlight) return inFlight;
+    const load = (async () => {
+      try {
+        const data = await this.request(
+          `/repos/${config.owner}/${config.repo}/commits?path=${encodeURIComponent(path)}&per_page=1`
+        );
+        let v: string | null = null;
+        if (Array.isArray(data) && data.length > 0) {
+          v = data[0]?.commit?.committer?.date ?? data[0]?.commit?.author?.date ?? null;
+        }
+        this.commitTimeCache.set(key, { ts: Date.now(), value: v });
+        return v;
+      } catch {
+        this.commitTimeCache.set(key, { ts: Date.now(), value: null });
+        return null;
+      } finally {
+        this.commitTimeInFlight.delete(key);
+      }
+    })();
+    this.commitTimeInFlight.set(key, load);
+    return load;
   }
 
   private async downloadBlobWithTimeout(url: string, headers: Record<string, string>, timeoutMs: number): Promise<Response> {
@@ -1125,11 +1283,26 @@ class GitHubClient {
     return response.blob();
   }
 
-  async downloadFileViaNative(path: string, fileName: string): Promise<boolean> {
+  async preflightDownload(path: string): Promise<{ ok: boolean; reason?: string }> {
     const config = this.getConfig();
-    if (!config) return false;
+    if (!config) return { ok: false, reason: 'GitHub config not set' };
+    try {
+      const data = await this.request(
+        `/repos/${config.owner}/${config.repo}/contents/${encodeURIComponent(path).replace(/%2F/g, '/')}`
+      );
+      if (!data || typeof data !== 'object') return { ok: false, reason: 'File metadata unavailable' };
+      return { ok: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, reason: msg };
+    }
+  }
+
+  async downloadFileViaNative(path: string, fileName: string): Promise<string | null> {
+    const config = this.getConfig();
+    if (!config) return null;
     const invoke = this.getTauriInvoke();
-    if (!invoke) return false;
+    if (!invoke) return null;
     try {
       const out = await invoke('download_github_file', {
         owner: config.owner,
@@ -1138,9 +1311,9 @@ class GitHubClient {
         path,
         fileName,
       });
-      return typeof out === 'string' && out.length > 0;
+      return typeof out === 'string' && out.length > 0 ? out : null;
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -1164,26 +1337,40 @@ class GitHubClient {
   async getFileContent(path: string): Promise<{ content: string; sha: string } | null> {
     const config = this.getConfig();
     if (!config) throw new Error('GitHub config not set');
-
-    try {
-      const data = await this.request(
-        `/repos/${config.owner}/${config.repo}/contents/${path}`
-      );
-      // Handle Unicode base64 decoding properly
-      const base64Content = data.content.replace(/\s/g, '');
-      const binaryString = atob(base64Content);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      const content = new TextDecoder('utf-8').decode(bytes);
-      return {
-        content,
-        sha: data.sha,
-      };
-    } catch {
-      return null;
+    const key = `${config.owner}/${config.repo}:${path}`;
+    const cached = this.archiveContentCache.get(key);
+    if (cached && Date.now() - cached.ts < 25_000) {
+      return cached.value;
     }
+    const inFlight = this.archiveContentInFlight.get(key);
+    if (inFlight) return inFlight;
+    const load = (async () => {
+      try {
+        const data = await this.request(
+          `/repos/${config.owner}/${config.repo}/contents/${path}`
+        );
+        const base64Content = data.content.replace(/\s/g, '');
+        const binaryString = atob(base64Content);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const content = new TextDecoder('utf-8').decode(bytes);
+        const value = { content, sha: data.sha };
+        this.archiveContentCache.set(key, { ts: Date.now(), value });
+        return value;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.toLowerCase() : '';
+        if (msg.includes('not found') || msg.includes('404') || msg.includes('409')) {
+          this.archiveContentCache.set(key, { ts: Date.now(), value: null });
+        }
+        return null;
+      } finally {
+        this.archiveContentInFlight.delete(key);
+      }
+    })();
+    this.archiveContentInFlight.set(key, load);
+    return load;
   }
 
   async connectExistingRepo(token: string, repoName: string = 'cns-downloads'): Promise<GitHubConfig> {
@@ -1294,6 +1481,58 @@ class GitHubClient {
   // Cookies management
   getCookies(): string | null {
     return storage.get('cns_cookies');
+  }
+
+  assessCookieText(cookiesContent: string): CookieHealth {
+    const lines = cookiesContent.split(/\r?\n/);
+    const nowSec = Math.floor(Date.now() / 1000);
+    let hasCookieRows = false;
+    let hasLiveAuthCookie = false;
+    const authNames = new Set([
+      'sid',
+      'hsid',
+      'ssid',
+      'apisid',
+      'sapISID'.toLowerCase(),
+      '__secure-1psid',
+      '__secure-3psid',
+      '__secure-1psidts',
+      '__secure-3psidts',
+      'login_info',
+    ]);
+
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const parts = line.split('\t');
+      if (parts.length < 7) continue;
+      hasCookieRows = true;
+      const domain = (parts[0] || '').toLowerCase();
+      const expiry = Number(parts[4] || 0);
+      const name = (parts[5] || '').toLowerCase();
+      const isYoutubeDomain = domain.includes('youtube.com') || domain.includes('google.com');
+      if (!isYoutubeDomain) continue;
+      if (!authNames.has(name)) continue;
+      const live = !Number.isFinite(expiry) || expiry <= 0 || expiry > nowSec;
+      if (live) {
+        hasLiveAuthCookie = true;
+        break;
+      }
+    }
+
+    if (!hasCookieRows) {
+      return { ok: false, reason: 'COOKIE_FORMAT_INVALID' };
+    }
+    if (!hasLiveAuthCookie) {
+      return { ok: false, reason: 'COOKIE_EXPIRED_LOCAL' };
+    }
+    return { ok: true };
+  }
+
+  assessStoredCookies(): CookieHealth {
+    const content = this.getCookies();
+    if (!content || !content.trim()) return { ok: true };
+    return this.assessCookieText(content);
   }
 
   clearCookies(): void {

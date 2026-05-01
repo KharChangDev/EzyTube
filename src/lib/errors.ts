@@ -46,6 +46,8 @@ export function toPersianErrorMessage(error: unknown): string {
   const message = raw.toLowerCase().replace(/[\u2019\u2018]/g, "'");
 
   if (
+    message.includes('cookie_expired_local') ||
+    message.includes('cookie_format_invalid') ||
     message.includes('cookies.txt') ||
     message.includes('cookies are no longer valid') ||
     message.includes('account cookies are no longer valid') ||

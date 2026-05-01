@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Download,
   Trash2,
@@ -44,9 +44,11 @@ interface SignalFeedProps {
 
 const MAX_LOGS = 16;
 const HEARTBEAT_INTERVAL_MS = 15000;
+const POLL_FAST_MS = 2000;
 const POLL_ACTIVE_MS = 5000;
 const POLL_IDLE_MS = 10000;
 const POLL_BACKOFF_MS = 20000;
+const JOB_FETCH_CONCURRENCY = 4;
 
 function isActiveJobStatus(s: DownloadJob['status']) {
   return s === 'pending' || s === 'running';
@@ -55,12 +57,66 @@ function isActiveJobStatus(s: DownloadJob['status']) {
 const RUN_MATCH_MAX_DELTA_MS = 15 * 60 * 1000;
 const RUN_MATCH_SKEW_MS = 30_000;
 
-function pickWorkflowRunForJob(job: DownloadJob, runs: any[]): any | null {
+type RunIndex = {
+  byId: Map<number, any>;
+  byMinute: Map<number, any[]>;
+  all: any[];
+};
+
+function minuteBucket(ts: number): number {
+  return Math.floor(ts / 60000);
+}
+
+function buildRunIndex(runs: any[]): RunIndex {
+  const byId = new Map<number, any>();
+  const byMinute = new Map<number, any[]>();
+  const normalized = [...runs];
+  for (const run of normalized) {
+    if (typeof run?.id === 'number') byId.set(run.id, run);
+    const runTime = new Date(run?.created_at ?? 0).getTime();
+    if (!Number.isFinite(runTime)) continue;
+    const b = minuteBucket(runTime);
+    const list = byMinute.get(b);
+    if (list) list.push(run);
+    else byMinute.set(b, [run]);
+  }
+  return { byId, byMinute, all: normalized };
+}
+
+function candidateRunsForJob(index: RunIndex, jobTime: number): any[] {
+  const base = minuteBucket(jobTime);
+  const out: any[] = [];
+  for (let i = -16; i <= 16; i += 1) {
+    const list = index.byMinute.get(base + i);
+    if (list) out.push(...list);
+  }
+  return out.length ? out : index.all;
+}
+
+function pickWorkflowRunForJob(job: DownloadJob, index: RunIndex): any | null {
   if (job.githubRunId != null) {
-    return runs.find((r: any) => r.id === job.githubRunId) ?? null;
+    return index.byId.get(job.githubRunId) ?? null;
   }
   const jobTime = new Date(job.createdAt).getTime();
   if (!Number.isFinite(jobTime)) return null;
+  const runs = candidateRunsForJob(index, jobTime);
+  if (job.runHint && Number.isFinite(job.runHint.afterTs)) {
+    const hinted = runs
+      .map((run: any) => {
+        const runTime = new Date(run.created_at).getTime();
+        if (!Number.isFinite(runTime)) return null;
+        return { run, runTime };
+      })
+      .filter((x): x is { run: any; runTime: number } => x != null)
+      .filter((x) => x.runTime >= job.runHint!.afterTs - 10000)
+      .sort((a, b) => {
+        const da = Math.abs(a.runTime - job.runHint!.afterTs);
+        const db = Math.abs(b.runTime - job.runHint!.afterTs);
+        if (da !== db) return da - db;
+        return (b.run.id ?? 0) - (a.run.id ?? 0);
+      });
+    if (hinted.length > 0) return hinted[0].run;
+  }
 
   const normalized = runs
     .map((run: any) => {
@@ -102,6 +158,33 @@ function pickWorkflowRunForJob(job: DownloadJob, runs: any[]): any | null {
     });
 
   return fallback[0]?.run ?? null;
+}
+
+async function runWithLimit<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
+  if (tasks.length === 0) return [];
+  const out = new Array<T>(tasks.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, tasks.length)) }, async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= tasks.length) return;
+      out[i] = await tasks[i]();
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+function patchChanged(current: DownloadJob, patch: Partial<DownloadJob>): boolean {
+  if (patch.status != null && patch.status !== current.status) return true;
+  if (patch.progress != null && patch.progress !== current.progress) return true;
+  if (patch.githubRunId != null && patch.githubRunId !== current.githubRunId) return true;
+  if (Object.prototype.hasOwnProperty.call(patch, 'githubLiveStep') && patch.githubLiveStep !== current.githubLiveStep) return true;
+  if (patch.logs) {
+    if (patch.logs.length !== current.logs.length) return true;
+    if (patch.logs[patch.logs.length - 1] !== current.logs[current.logs.length - 1]) return true;
+  }
+  return false;
 }
 
 function deriveGithubActionsProgress(
@@ -308,9 +391,14 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
   const lastHeartbeatRef = useRef<Record<string, number>>({});
   const shownFailuresRef = useRef<Set<string>>(new Set());
   const [partsModal, setPartsModal] = useState<ArchiveItem | null>(null);
+  const handleShowParts = useCallback((item: ArchiveItem) => {
+    setPartsModal(item);
+  }, []);
+
   const [failedJob, setFailedJob] = useState<DownloadJob | null>(null);
   const refreshArchive = archive.refresh;
-  const failedLogFetchedRef = useRef<Set<number>>(new Set());
+  const failedLogFetchedRef = useRef<Set<string>>(new Set());
+  const lastArchiveRefreshAtRef = useRef(0);
 
   useEffect(() => {
     const failed = jobs.find((job) => job.status === 'failed' && !shownFailuresRef.current.has(job.id));
@@ -327,6 +415,10 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
     let cancelled = false;
     let timer: number | null = null;
     let unchangedPolls = 0;
+    let fastLaneTicks = 0;
+    let staleFallbackLeft = 0;
+    let lastGoodRuns: any[] = [];
+    const lastGoodRunJobs = new Map<number, any[]>();
 
     const scheduleNext = (ms: number) => {
       if (cancelled) return;
@@ -339,22 +431,57 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
         .map((j) => j.id);
       if (activeIds.length === 0) {
         unchangedPolls = 0;
+        fastLaneTicks = 0;
         scheduleNext(POLL_IDLE_MS);
         return;
       }
 
       try {
         const runs = await github.getWorkflowRuns();
+        lastGoodRuns = runs;
+        staleFallbackLeft = 2;
+        const runIndex = buildRunIndex(runs);
+        const matchedByJobId = new Map<string, any>();
+        const uniqueRunIds = new Set<number>();
+        for (const jobId of activeIds) {
+          const current = jobsRef.current.find((j) => j.id === jobId);
+          if (!current || !isActiveJobStatus(current.status)) continue;
+          const matchingRun = pickWorkflowRunForJob(current, runIndex);
+          if (!matchingRun) {
+            const age = Date.now() - new Date(current.createdAt).getTime();
+            if (Number.isFinite(age) && age < 45_000) {
+              continue;
+            }
+          }
+          if (!matchingRun) continue;
+          matchedByJobId.set(jobId, matchingRun);
+          if (typeof matchingRun.id === 'number') uniqueRunIds.add(matchingRun.id);
+        }
+
+        const uniqueIds = [...uniqueRunIds];
+        const jobsResults = await runWithLimit(
+          uniqueIds.map((runId) => async () => {
+            const liveJobs = await github.getWorkflowRunJobs(runId).catch(() => []);
+            return { runId, liveJobs };
+          }),
+          JOB_FETCH_CONCURRENCY
+        );
         const jobsByRunId = new Map<number, any[]>();
-        const patchCountBefore = activeIds.length;
+        for (const { runId, liveJobs } of jobsResults) {
+          jobsByRunId.set(runId, liveJobs);
+          lastGoodRunJobs.set(runId, liveJobs);
+        }
+
+        const patchCountBefore = matchedByJobId.size;
         let patchCount = 0;
         const refreshSet = new Set<string>();
+        let hadStateChange = false;
 
         for (const jobId of activeIds) {
           let current = jobsRef.current.find((j) => j.id === jobId);
           if (!current || !isActiveJobStatus(current.status)) continue;
 
-          const matchingRun = pickWorkflowRunForJob(current, runs);
+          const matchingRun = matchedByJobId.get(jobId);
           if (!matchingRun) continue;
 
           current = jobsRef.current.find((j) => j.id === jobId);
@@ -370,11 +497,7 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
           let logs = current.logs;
           let shouldUpdate = false;
 
-          let liveJobs = jobsByRunId.get(matchingRun.id);
-          if (!liveJobs) {
-            liveJobs = await github.getWorkflowRunJobs(matchingRun.id).catch(() => []);
-            jobsByRunId.set(matchingRun.id, liveJobs);
-          }
+          const liveJobs = jobsByRunId.get(matchingRun.id) ?? [];
 
           current = jobsRef.current.find((j) => j.id === jobId);
           if (!current || !isActiveJobStatus(current.status)) continue;
@@ -421,6 +544,7 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
           }
 
           if (status !== current.status) {
+            hadStateChange = true;
             if (status === 'success') {
               logs = appendLog(
                 logs,
@@ -437,8 +561,9 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
                   : typeof ghJobIdRaw === 'string' && /^\d+$/.test(ghJobIdRaw)
                     ? parseInt(ghJobIdRaw, 10)
                     : NaN;
-              if (Number.isFinite(ghJobIdNum) && !failedLogFetchedRef.current.has(ghJobIdNum)) {
-                failedLogFetchedRef.current.add(ghJobIdNum);
+              const failureSig = `${ghJobIdNum}:${String(failedRunJob?.completed_at || failedRunJob?.updated_at || '')}`;
+              if (Number.isFinite(ghJobIdNum) && !failedLogFetchedRef.current.has(failureSig)) {
+                failedLogFetchedRef.current.add(failureSig);
                 const raw = await github.getJobLogsText(ghJobIdNum);
                 current = jobsRef.current.find((j) => j.id === jobId);
                 if (!current || !isActiveJobStatus(current.status)) continue;
@@ -460,6 +585,8 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
           const patch: Partial<DownloadJob> = {};
           if (current.githubRunId == null) {
             patch.githubRunId = matchingRun.id;
+            const attachLine = `[${new Date().toLocaleTimeString('fa-IR')}] اتصال به اجرای گیت‌هاب برقرار شد`;
+            patch.logs = appendLog(logs, attachLine);
           }
           if (shouldUpdate) {
             patch.status = status;
@@ -481,15 +608,37 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
               patch.githubLiveStep = nextStep;
             }
           }
-          if (Object.keys(patch).length > 0) {
+          if (Object.keys(patch).length > 0 && patchChanged(current, patch)) {
             onUpdate(jobId, patch);
             patchCount += 1;
+            if (patch.status != null || patch.progress != null || patch.githubLiveStep !== undefined) {
+              hadStateChange = true;
+            }
           }
         }
-        refreshSet.forEach(() => window.setTimeout(() => refreshArchive(), 1200));
+        if (refreshSet.size > 0) {
+          const now = Date.now();
+          if (now - lastArchiveRefreshAtRef.current > 1800) {
+            lastArchiveRefreshAtRef.current = now;
+            window.setTimeout(() => refreshArchive(), 900);
+          }
+        }
         const changed = patchCount > 0 || patchCountBefore === 0;
         unchangedPolls = changed ? 0 : Math.min(unchangedPolls + 1, 10);
-        const nextMs = unchangedPolls >= 3 ? POLL_BACKOFF_MS : POLL_ACTIVE_MS;
+        const hasFreshSubmit = jobsRef.current.some((j) => {
+          if (!isActiveJobStatus(j.status)) return false;
+          const age = Date.now() - new Date(j.createdAt).getTime();
+          return Number.isFinite(age) && age < 20000;
+        });
+        if (hadStateChange) {
+          fastLaneTicks = 2;
+        } else if (hasFreshSubmit) {
+          fastLaneTicks = Math.max(fastLaneTicks, 2);
+        } else if (fastLaneTicks > 0) {
+          fastLaneTicks -= 1;
+        }
+        const nextMs =
+          fastLaneTicks > 0 ? POLL_FAST_MS : unchangedPolls >= 3 ? POLL_BACKOFF_MS : POLL_ACTIVE_MS;
         scheduleNext(nextMs);
       } catch (err) {
         logger.warn('[Poll] Workflow status poll failed', {
@@ -500,13 +649,33 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
             ? { cnsErrorCode: err.code, cnsRetryable: err.retryable }
             : {}),
         });
-        for (const jid of activeIds) {
-          const latest = jobsRef.current.find((j) => j.id === jid);
-          if (!latest || !isActiveJobStatus(latest.status)) continue;
-          onUpdate(jid, {
-            logs: appendLog(latest.logs, `[${new Date().toLocaleTimeString('fa-IR')}] ${toPersianErrorMessage(err)}`),
-            progress: latest.progress,
-          });
+        if (staleFallbackLeft > 0 && lastGoodRuns.length > 0) {
+          staleFallbackLeft -= 1;
+          const runIndex = buildRunIndex(lastGoodRuns);
+          for (const jid of activeIds) {
+            const latest = jobsRef.current.find((j) => j.id === jid);
+            if (!latest || !isActiveJobStatus(latest.status)) continue;
+            const run = pickWorkflowRunForJob(latest, runIndex);
+            if (!run) continue;
+            const liveJobs = lastGoodRunJobs.get(run.id) ?? [];
+            const gh = deriveGithubActionsProgress(liveJobs, run);
+            const nextStep = gh.stepName ?? undefined;
+            const patch: Partial<DownloadJob> = {};
+            if (gh.progress !== latest.progress) patch.progress = gh.progress;
+            if ((latest.githubLiveStep ?? undefined) !== nextStep) patch.githubLiveStep = nextStep;
+            if (Object.keys(patch).length > 0 && patchChanged(latest, patch)) {
+              onUpdate(jid, patch);
+            }
+          }
+        } else {
+          for (const jid of activeIds) {
+            const latest = jobsRef.current.find((j) => j.id === jid);
+            if (!latest || !isActiveJobStatus(latest.status)) continue;
+            onUpdate(jid, {
+              logs: appendLog(latest.logs, `[${new Date().toLocaleTimeString('fa-IR')}] ${toPersianErrorMessage(err)}`),
+              progress: latest.progress,
+            });
+          }
         }
         unchangedPolls = Math.min(unchangedPolls + 1, 10);
         scheduleNext(POLL_BACKOFF_MS);
@@ -608,7 +777,7 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
           onDownload={archive.download}
           onDelete={archive.remove}
           onRemoveJob={onRemoveJob}
-          onShowParts={(item) => setPartsModal(item)}
+          onShowParts={handleShowParts}
         />
       ))}
 
@@ -700,7 +869,7 @@ interface ResultCardProps {
   onShowParts: (item: ArchiveItem) => void;
 }
 
-function ResultCard({
+const ResultCard = memo(function ResultCard({
   card,
   archiveDownloading,
   archiveDeleting,
@@ -884,4 +1053,4 @@ function ResultCard({
       )}
     </article>
   );
-}
+});

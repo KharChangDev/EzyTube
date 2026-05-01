@@ -120,12 +120,16 @@ function App() {
     };
   }, [jobs]);
 
-  const handleJobSubmit = useCallback((newJobs: DownloadJob[]) => {
+  const handleAddPendingJob = useCallback((newJob: DownloadJob) => {
     if (jobsRef.current.some((j) => j.status === 'pending' || j.status === 'running')) {
       return;
     }
-    setJobs((prev) => [...newJobs, ...prev]);
+    setJobs((prev) => [newJob, ...prev]);
     window.dispatchEvent(new CustomEvent('cns-matrix-burst'));
+  }, []);
+
+  const handlePatchJob = useCallback((jobId: string, updates: Partial<DownloadJob>) => {
+    setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, ...updates } : j)));
   }, []);
 
   const handleJobUpdate = useCallback(
@@ -135,17 +139,10 @@ function App() {
         if (job && (job.status === 'failed' || job.status === 'success')) {
           return prev;
         }
-        if (
-          job &&
-          updates.status === 'success' &&
-          job.status !== 'success'
-        ) {
-          setTimeout(() => archive.refresh(), 1000);
-        }
         return prev.map((j) => (j.id === jobId ? { ...j, ...updates } : j));
       });
     },
-    [archive]
+    []
   );
 
   const handleJobRemove = useCallback((jobId: string) => {
@@ -213,7 +210,13 @@ function App() {
           </div>
         )}
 
-        <InputNode onSubmit={handleJobSubmit} disabled={!hasConfig} downloadBusy={downloadBusy} />
+        <InputNode
+          onAddPending={handleAddPendingJob}
+          onPatchJob={handlePatchJob}
+          hasActiveJob={downloadBusy}
+          disabled={!hasConfig}
+          downloadBusy={downloadBusy}
+        />
 
         <SignalFeed
           jobs={jobs}
