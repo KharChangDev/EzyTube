@@ -27,10 +27,10 @@
 🔍 دانلود با سرعت بالا بدون نیاز به VPN
 
 🟡 پشتیبانی از انواع کیفیت‌ها:
-Best Quality, 1080p, 720p, 480p و فقط صدا
+Best Quality, 1080p, 720p, 480p
 
 🟡 پشتیبانی از فرمت‌های مختلف:
-MP4, WebM, MP3
+MP4, MP3
 
 🔄 مدیریت خودکار فایل‌های بزرگ با قابلیت تقسیم‌بندی
 
@@ -46,7 +46,7 @@ MP4, WebM, MP3
 
 ## 📥 دانلود و نصب
 
-### دانلود مستقیم نسخه دسکتاپ (v1.1.1)
+### دانلود مستقیم نسخه دسکتاپ (v1.2.0)
 
 <div dir="rtl" align="right">
    <table>
@@ -60,23 +60,23 @@ MP4, WebM, MP3
         <tr>
             <td>ویندوز</td>
             <td>
-                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.1.1/CNS_1.1.1_x64-setup.exe"><img src="https://img.shields.io/badge/Setup-x64-0078d7.svg?logo=windows"></a><br>
-                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.1.1/CNS_1.1.1_x64_en-US.msi"><img src="https://img.shields.io/badge/MSI-x64-2d7d9a.svg?logo=windows"></a>
+                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.2.0/CNS_1.2.0_x64-setup.exe"><img src="https://img.shields.io/badge/Setup-x64-0078d7.svg?logo=windows"></a><br>
+                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.2.0/CNS_1.2.0_x64_en-US.msi"><img src="https://img.shields.io/badge/MSI-x64-2d7d9a.svg?logo=windows"></a>
             </td>
         </tr>
         <tr>
             <td>لینوکس</td>
             <td>
-                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.1.1/cns_1.1.1_amd64.deb"><img src="https://img.shields.io/badge/DEB-x64-FF9966.svg?logo=debian"></a>
+                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.2.0/cns_1.2.0_amd64.deb"><img src="https://img.shields.io/badge/DEB-x64-FF9966.svg?logo=debian"></a>
             </td>
         </tr>
         <tr>
             <td>مک</td>
             <td>
-                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.1.1/CNS_1.1.1_aarch64.dmg"><img src="https://img.shields.io/badge/DMG-Apple_Silicon-007AFF.svg?logo=apple"></a><br>
-                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.1.1/CNS_1.1.1_x64.dmg"><img src="https://img.shields.io/badge/DMG-Intel-ea005e.svg?logo=apple"></a><br>
-                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.1.1/CNS_aarch64.app.tar.gz"><img src="https://img.shields.io/badge/APP-ARM64-34C759.svg?logo=apple"></a><br>
-                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.1.1/CNS_x64.app.tar.gz"><img src="https://img.shields.io/badge/APP-x64-FF9500.svg?logo=apple"></a>
+                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.2.0/CNS_1.2.0_aarch64.dmg"><img src="https://img.shields.io/badge/DMG-Apple_Silicon-007AFF.svg?logo=apple"></a><br>
+                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.2.0/CNS_1.2.0_x64.dmg"><img src="https://img.shields.io/badge/DMG-Intel-ea005e.svg?logo=apple"></a><br>
+                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.2.0/CNS_aarch64.app.tar.gz"><img src="https://img.shields.io/badge/APP-ARM64-34C759.svg?logo=apple"></a><br>
+                <a href="https://github.com/MercilessMarcel/CNS/releases/download/v1.2.0/CNS_x64.app.tar.gz"><img src="https://img.shields.io/badge/APP-x64-FF9500.svg?logo=apple"></a>
             </td>
         </tr>
     </tbody>
@@ -151,9 +151,9 @@ npm run desktop:build:portable
 
 1. آدرس ویدیوی یوتیوب را کپی کنید
 2. در کادر ورودی پیست کنید
-3. کیفیت دلخواه را انتخاب کنید (Best, 1080p, 720p, 480p, Audio)
-4. فرمت خروجی را انتخاب کنید (MP4, WebM, MP3)
-5. روی دکمه **دانلود** کلیک کنید
+3. کیفیت دلخواه را انتخاب کنید (Best, 1080p, 720p, 480p)
+4. فرمت خروجی را انتخاب کنید (MP4, MP3)
+5. روی دکمه **دریافت** کلیک کنید
 
 ### مدیریت دانلودها
 
@@ -206,6 +206,17 @@ GitHub محدودیت استفاده در ساعت دارد
 
 - [github-sandbox](https://github.com/maanimis/github-sandbox) - ایده اصلی استفاده از GitHub Actions
 - [sandbox](https://github.com/nscl5/sandbox/) - روش تقسیم‌بندی فایل‌ها
+
+ابزارها و منابع مورد استفاده:
+
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - موتور دانلود ویدیو
+- [Tauri](https://tauri.app) - فریم‌ورک اپلیکیشن دسکتاپ
+- [React](https://react.dev) - رابط کاربری
+- [Vite](https://vitejs.dev) - ابزار ساخت
+- [Tailwind CSS](https://tailwindcss.com) - استایل‌دهی
+- [Vazirmatn](https://github.com/rastikerdar/vazirmatn) - فونت فارسی
+- [JetBrains Mono](https://www.jetbrains.com/lp/mono/) - فونت monospace
+- [Lucide](https://lucide.dev) - آیکون‌ها
 
 تشکر ویژه از تمام توسعه‌دهندگان.
 

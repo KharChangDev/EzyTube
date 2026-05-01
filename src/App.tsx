@@ -1,36 +1,79 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Terminal, Radio, Archive, Settings } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Settings, AlertCircle } from 'lucide-react';
 import { fa } from './lib/i18n';
 import { github, DownloadJob } from './lib/github';
 import { logger } from './lib/logger';
 import { cn } from './lib/utils';
 import { InputNode } from './components/InputNode';
 import { SignalFeed } from './components/SignalFeed';
-import { ArchivePanel } from './components/ArchivePanel';
 import { SettingsModal } from './components/SettingsModal';
+import { MatrixRain } from './components/MatrixRain';
+import { AsciiLogo } from './components/AsciiLogo';
+import { useArchive } from './lib/useArchive';
+import { toPersianErrorMessage } from './lib/errors';
 
-const MATRIX_COLUMNS = [
-  '101001011001',
-  'CNS-STREAM',
-  '010110100111',
-  'WORKFLOW',
-  '110010101001',
-  'SIGNAL-FEED',
-  '001011011010',
-  'ARCHIVE-NODE',
-  '010011100101',
-  'DOWNLOAD',
-  '100110101010',
-  'GITHUB-ACT',
-] as const;
+const JOBS_STORAGE_KEY = 'cns_download_jobs';
+const MAX_STORED_JOBS = 30;
+const MAX_STORED_JOB_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function loadStoredJobs(): DownloadJob[] {
+  try {
+    const raw = localStorage.getItem(JOBS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const now = Date.now();
+    return parsed
+      .filter((job): job is DownloadJob => {
+        if (!job || typeof job !== 'object') return false;
+        if (typeof job.id !== 'string' || typeof job.url !== 'string') return false;
+        if (!['pending', 'running', 'success', 'failed'].includes(job.status)) return false;
+        const createdAt = new Date(job.createdAt).getTime();
+        return Number.isFinite(createdAt) && now - createdAt <= MAX_STORED_JOB_AGE_MS;
+      })
+      .slice(0, MAX_STORED_JOBS);
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredJobs(jobs: DownloadJob[]) {
+  try {
+    localStorage.setItem(JOBS_STORAGE_KEY, JSON.stringify(jobs.slice(0, MAX_STORED_JOBS)));
+  } catch {
+  }
+}
+
+function summarizeJobsForSupport(jobs: DownloadJob[]) {
+  return jobs.slice(0, 25).map((j) => ({
+    id: j.id,
+    status: j.status,
+    format: j.format,
+    quality: j.quality,
+    url: j.url,
+    githubRunId: j.githubRunId ?? null,
+    githubLiveStep: j.githubLiveStep ?? null,
+    createdAt: j.createdAt,
+    lastUserLog: j.logs.length ? j.logs[j.logs.length - 1].slice(0, 800) : null,
+  }));
+}
 
 function App() {
-  const [jobs, setJobs] = useState<DownloadJob[]>([]);
+  const [jobs, setJobs] = useState<DownloadJob[]>(loadStoredJobs);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hasConfig, setHasConfig] = useState(false);
-  const [activeTab, setActiveTab] = useState<'input' | 'feed' | 'archive'>('input');
-  const [archiveRefreshKey, setArchiveRefreshKey] = useState(0);
   const [initError, setInitError] = useState<string | null>(null);
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
+
+  const archive = useArchive({ enabled: hasConfig });
+
+  useEffect(() => {
+    logger.registerSupportContext(() => ({
+      github: github.getSupportSnapshot(),
+      recentJobs: summarizeJobsForSupport(jobsRef.current),
+    }));
+  }, []);
 
   useEffect(() => {
     logger.info('App startup: config initialization start');
@@ -38,189 +81,126 @@ function App() {
       const config = github.getConfig();
       const configAvailable = !!config;
       setHasConfig(configAvailable);
-      logger.info('App startup: config initialization complete', { hasConfig: configAvailable });
+      logger.info('App startup: config initialization complete', {
+        hasConfig: configAvailable,
+        repositoryFullName: config ? `${config.owner}/${config.repo}` : null,
+      });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const msg = toPersianErrorMessage(err);
       logger.error('App startup: config check failed', { error: msg });
       setInitError(msg);
       setHasConfig(false);
     }
   }, []);
 
-  const handleJobSubmit = useCallback((job: DownloadJob) => {
-    setJobs(prev => [job, ...prev]);
-    setActiveTab('feed');
+  useEffect(() => {
+    saveStoredJobs(jobs);
+  }, [jobs]);
+
+  const handleJobSubmit = useCallback((newJobs: DownloadJob[]) => {
+    if (jobsRef.current.some((j) => j.status === 'pending' || j.status === 'running')) {
+      return;
+    }
+    setJobs((prev) => [...newJobs, ...prev]);
+    window.dispatchEvent(new CustomEvent('cns-matrix-burst'));
   }, []);
 
-  const handleJobUpdate = useCallback((jobId: string, updates: Partial<DownloadJob>) => {
-    setJobs(prev => {
-      const job = prev.find(j => j.id === jobId);
-      if (job && updates.status === 'success' && job.status !== 'success') {
-        setTimeout(() => setArchiveRefreshKey(k => k + 1), 1000);
-      }
+  const handleJobUpdate = useCallback(
+    (jobId: string, updates: Partial<DownloadJob>) => {
+      setJobs((prev) => {
+        const job = prev.find((j) => j.id === jobId);
+        if (job && (job.status === 'failed' || job.status === 'success')) {
+          return prev;
+        }
+        if (
+          job &&
+          updates.status === 'success' &&
+          job.status !== 'success'
+        ) {
+          setTimeout(() => archive.refresh(), 1000);
+        }
+        return prev.map((j) => (j.id === jobId ? { ...j, ...updates } : j));
+      });
+    },
+    [archive]
+  );
 
-      return prev.map(j => j.id === jobId ? { ...j, ...updates } : j);
-    });
+  const handleJobRemove = useCallback((jobId: string) => {
+    setJobs((prev) => prev.filter((j) => j.id !== jobId));
   }, []);
 
-  const activeJobs = jobs.filter(job => job.status === 'pending' || job.status === 'running').length;
-  const completedJobs = jobs.filter(job => job.status === 'success').length;
-  const heroMetrics = [
-    { label: 'LIVE', value: String(activeJobs) },
-    { label: 'DONE', value: String(completedJobs) },
-    { label: 'SYNC', value: initError ? 'ERROR' : hasConfig ? 'ONLINE' : 'OFFLINE' },
-  ];
+  const downloadBusy = jobs.some(
+    (j) => j.status === 'pending' || j.status === 'running'
+  );
 
   return (
-    <div className="min-h-screen bg-cns-bg p-4 text-cns-primary md:p-6">
+    <div className="min-h-screen bg-cns-bg p-4 text-cns-primary md:p-6 pb-16" dir="ltr">
       <div className="green-tint" />
-      <div className="matrix-rain" aria-hidden="true">
-        {MATRIX_COLUMNS.map((column, index) => (
-          <span
-            key={`${column}-${index}`}
-            className="matrix-column"
-            style={{
-              right: `${4 + index * 8}%`,
-              animationDelay: `${(index % 6) * -3.2}s`,
-              animationDuration: `${16 + (index % 5) * 3}s`,
-            }}
-          >
-            {column}
-          </span>
-        ))}
-      </div>
+      <MatrixRain />
       <div className="shell-grid" />
       <div className="shell-glow" />
 
-      <div className="relative mx-auto max-w-7xl">
+      <aside className="cookie-warning" dir="rtl">
+        <AlertCircle size={15} />
+        <div>
+          <strong>یادآوری کوکی یوتیوب</strong>
+          <p>
+            یوتیوب هر چند ساعت کوکی‌ها را عوض می‌کند. اگر دانلود گیر کرد یا خطا داد،
+            کوکی‌های جدید را از مرورگر بگیرید و دوباره در تنظیمات وارد کنید.
+          </p>
+        </div>
+      </aside>
+
+      <div className="relative z-10 mx-auto max-w-3xl">
+        <header className="reclip-header">
+          <AsciiLogo />
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className={cn('settings-cog', !hasConfig && 'warn')}
+            aria-label={fa.actions.settings}
+            title={fa.actions.settings}
+          >
+            <Settings size={16} />
+            <span>تنظیمات</span>
+          </button>
+        </header>
+
         {initError && (
-          <div className="mb-4 p-3 border border-cns-warning/50 bg-cns-warning/10 rounded-lg">
-            <div className="text-cns-warning text-sm" dir="rtl">
-              خطای راه‌اندازی: {initError}
+          <div className="mb-4 p-3 border border-cns-warning/50 bg-cns-warning/10 rounded-sm">
+            <div
+              className="flex items-center gap-2 text-cns-warning text-sm"
+              dir="ltr"
+            >
+              <AlertCircle size={14} />
+              <span>خطای راه‌اندازی: {initError}</span>
             </div>
           </div>
         )}
 
-        <header className="flex items-center justify-between mb-6 p-4 border border-cns-primary/30 rounded-lg bg-cns-bg">
-          <h1 className="text-lg font-mono text-cns-highlight" dir="rtl">{fa.app.title}</h1>
-          <div className="flex items-center gap-2">
-            {heroMetrics.map((metric) => (
-              <div key={metric.label} className="console-tile" dir="ltr">
-                <span>{metric.label}</span>
-                <strong>{metric.value}</strong>
-              </div>
-            ))}
-            <div
+        {!hasConfig && !initError && (
+          <div className="config-banner" dir="ltr">
+            <AlertCircle size={14} />
+            <span>توکن گیت‌هاب و کوکی‌های یوتیوب را در تنظیمات وارد کنید</span>
+            <button
+              type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className={cn(
-                "console-tile cursor-pointer",
-                !hasConfig && "border-cns-warning text-cns-warning"
-              )}
-              dir="ltr"
+              className="config-banner-btn"
             >
-              <Settings size={28} />
-            </div>
+              <Settings size={12} />
+              <span>{fa.actions.settings}</span>
+            </button>
           </div>
-        </header>
+        )}
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-          <section
-            className={cn(
-              "panel-shell flex flex-col md:col-span-4",
-              activeTab !== 'input' && 'hidden md:flex'
-            )}
-          >
-            <div className="panel-head">
-              <div>
-                <div className="section-label">
-                  <Terminal size={12} />
-                </div>
-                <p className="panel-subtitle" dir="rtl">
-                  لینک را وارد کنید، کیفیت را مشخص کنید و فرمان دریافت را به workflow بفرستید.
-                </p>
-              </div>
-              <span className="panel-index" dir="ltr">01</span>
-            </div>
-            <div className="panel-body p-4 md:p-5">
-              <InputNode
-                onSubmit={handleJobSubmit}
-                disabled={!hasConfig}
-              />
-            </div>
-          </section>
+        <InputNode onSubmit={handleJobSubmit} disabled={!hasConfig} downloadBusy={downloadBusy} />
 
-          <section
-            className={cn(
-              "panel-shell flex flex-col md:col-span-5 md:min-h-[620px]",
-              activeTab !== 'feed' && 'hidden md:flex'
-            )}
-          >
-            <div className="panel-head">
-              <div>
-                <div className="section-label">
-                  <Radio size={12} className={activeJobs > 0 ? 'animate-pulse-signal' : ''} />
-                  {activeJobs > 0 && (
-                    <span className="signal-active mr-2 text-cns-highlight">
-                      <span dir="ltr">{activeJobs.toLocaleString('fa-IR')} LIVE</span>
-                    </span>
-                  )}
-                </div>
-                <p className="panel-subtitle" dir="rtl">
-                  {activeJobs > 0
-                    ? `${activeJobs.toLocaleString('fa-IR')} عملیات در حال پیگیری است و لاگ‌ها به صورت خودکار تازه می‌شوند.`
-                    : 'به محض ثبت اولین لینک، لاگ‌های اجرای workflow در این بخش ظاهر می‌شوند.'}
-                </p>
-              </div>
-              <span className="panel-index" dir="ltr">02</span>
-            </div>
-            <div className="panel-body p-4 md:p-5">
-              <SignalFeed
-                jobs={jobs}
-                onUpdate={handleJobUpdate}
-              />
-            </div>
-          </section>
-
-          <section
-            className={cn(
-              "panel-shell flex flex-col md:col-span-3 md:min-h-[620px]",
-              activeTab !== 'archive' && 'hidden md:flex'
-            )}
-          >
-            <div className="panel-head">
-              <div>
-                <div className="section-label">
-                  <Archive size={12} />
-                </div>
-                <p className="panel-subtitle" dir="rtl">
-                  خروجی‌های ذخیره‌شده، تصویر بندانگشتی و عملیات دانلود یا حذف در همین ستون.
-                </p>
-              </div>
-              <span className="panel-index" dir="ltr">03</span>
-            </div>
-            <div className="panel-body p-4 md:p-5">
-              <ArchivePanel refreshKey={archiveRefreshKey} />
-            </div>
-          </section>
-        </div>
-
-        <footer className="system-footer mt-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <span dir="ltr">CNS v1.1.1</span>
-              <span className="footer-divider" />
-              <span dir="rtl">{fa.warnings.rateLimit}</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={cn("status-pill", hasConfig ? "success" : "muted")} dir="rtl">
-                {hasConfig ? 'اتصال آماده' : 'نیاز به تنظیمات'}
-              </span>
-              <span className="status-pill" dir="rtl">
-                {completedJobs.toLocaleString('fa-IR')} دریافت موفق
-              </span>
-            </div>
-          </div>
-        </footer>
+        <SignalFeed
+          jobs={jobs}
+          onUpdate={handleJobUpdate}
+          onRemoveJob={handleJobRemove}
+          archive={archive}
+        />
       </div>
 
       <SettingsModal
@@ -229,6 +209,7 @@ function App() {
           setIsSettingsOpen(false);
           setHasConfig(!!github.getConfig());
         }}
+        onConfigChanged={() => setHasConfig(!!github.getConfig())}
       />
     </div>
   );
