@@ -4,10 +4,7 @@ import { toPersianErrorMessage } from './errors';
 import { logger } from './logger';
 import { listSplitPartFiles } from './splitParts';
 
-const GITHUB_API_BASE =
-  typeof window !== 'undefined' && window.location.origin.startsWith('http://localhost:')
-    ? '/github-api'
-    : 'https://api.github.com';
+const GITHUB_API_BASE = 'https://api.github.com';
 
 export interface ArchiveItem {
   name: string;

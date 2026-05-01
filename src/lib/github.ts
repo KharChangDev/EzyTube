@@ -1,9 +1,6 @@
 import { logger } from './logger';
 
-const API_BASE =
-  typeof window !== 'undefined' && window.location.origin.startsWith('http://localhost:')
-    ? '/github-api'
-    : 'https://api.github.com';
+const API_BASE = 'https://api.github.com';
 const SECURE_TOKEN_PLACEHOLDER = '__cns_secure_token__';
 const SESSION_TOKEN_KEY = 'cns_github_token_session';
 const GET_CACHE_TTL_MS = 12_000;
