@@ -98,6 +98,9 @@ function App() {
   }, [jobs]);
 
   const handleJobSubmit = useCallback((newJobs: DownloadJob[]) => {
+    if (jobsRef.current.some((j) => j.status === 'pending' || j.status === 'running')) {
+      return;
+    }
     setJobs((prev) => [...newJobs, ...prev]);
     window.dispatchEvent(new CustomEvent('cns-matrix-burst'));
   }, []);
@@ -125,6 +128,10 @@ function App() {
   const handleJobRemove = useCallback((jobId: string) => {
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
   }, []);
+
+  const downloadBusy = jobs.some(
+    (j) => j.status === 'pending' || j.status === 'running'
+  );
 
   return (
     <div className="min-h-screen bg-cns-bg p-4 text-cns-primary md:p-6 pb-16" dir="ltr">
@@ -186,7 +193,7 @@ function App() {
           </div>
         )}
 
-        <InputNode onSubmit={handleJobSubmit} disabled={!hasConfig} />
+        <InputNode onSubmit={handleJobSubmit} disabled={!hasConfig} downloadBusy={downloadBusy} />
 
         <SignalFeed
           jobs={jobs}

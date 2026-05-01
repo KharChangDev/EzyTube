@@ -9,6 +9,7 @@ import { fa } from '../lib/i18n';
 interface InputNodeProps {
   onSubmit: (jobs: DownloadJob[]) => void;
   disabled?: boolean;
+  downloadBusy?: boolean;
 }
 
 const FORMATS = [
@@ -51,7 +52,7 @@ async function fetchOembed(url: string): Promise<DownloadJob['meta']> {
   }
 }
 
-export function InputNode({ onSubmit, disabled }: InputNodeProps) {
+export function InputNode({ onSubmit, disabled, downloadBusy }: InputNodeProps) {
   const [text, setText] = useState('');
   const [quality, setQuality] = useState<string>('best');
   const [format, setFormat] = useState<string>('mp4');
@@ -62,6 +63,7 @@ export function InputNode({ onSubmit, disabled }: InputNodeProps) {
   const isMp3 = format === 'mp3';
 
   const handleSubmit = async () => {
+    if (downloadBusy) return;
     if (!url) {
       setError('یک لینک https معتبر وارد کنید (بدون چند لینک یا خط جدید)');
       return;
@@ -150,8 +152,10 @@ export function InputNode({ onSubmit, disabled }: InputNodeProps) {
     }
   };
 
+  const formLocked = disabled || isLoading || downloadBusy;
+
   const handlePasteFromClipboard = async () => {
-    if (disabled || isLoading) return;
+    if (formLocked) return;
     try {
       const clip = await navigator.clipboard.readText();
       setText(clip.trim());
@@ -172,7 +176,7 @@ export function InputNode({ onSubmit, disabled }: InputNodeProps) {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={fa.input.placeholder}
-            disabled={disabled || isLoading}
+            disabled={formLocked}
             className="fetch-url-input"
             spellCheck={false}
             autoComplete="off"
@@ -183,7 +187,7 @@ export function InputNode({ onSubmit, disabled }: InputNodeProps) {
             type="button"
             className="fetch-paste-btn"
             onClick={() => void handlePasteFromClipboard()}
-            disabled={disabled || isLoading}
+            disabled={formLocked}
             aria-label={fa.input.paste}
             title={fa.input.paste}
           >
@@ -191,7 +195,7 @@ export function InputNode({ onSubmit, disabled }: InputNodeProps) {
           </button>
         </div>
         <div className="fetch-hint" dir="rtl">
-          {fa.input.hint}
+          {downloadBusy ? fa.input.waitActiveDownload : fa.input.hint}
         </div>
       </div>
 
@@ -202,7 +206,7 @@ export function InputNode({ onSubmit, disabled }: InputNodeProps) {
               key={opt.value}
               type="button"
               onClick={() => setFormat(opt.value)}
-              disabled={disabled || isLoading}
+              disabled={formLocked}
               className={cn('format-pill-btn', format === opt.value && 'active')}
               aria-pressed={format === opt.value}
             >
@@ -214,7 +218,7 @@ export function InputNode({ onSubmit, disabled }: InputNodeProps) {
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={disabled || isLoading || !url}
+          disabled={formLocked || !url}
           className="fetch-button"
         >
           <Download size={16} />
@@ -232,7 +236,7 @@ export function InputNode({ onSubmit, disabled }: InputNodeProps) {
               key={opt.value}
               type="button"
               onClick={() => setQuality(opt.value)}
-              disabled={disabled || isLoading || isMp3}
+              disabled={formLocked || isMp3}
               className={cn(
                 'quality-rail-btn',
                 quality === opt.value && !isMp3 && 'active'
