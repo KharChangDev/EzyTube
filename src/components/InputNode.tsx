@@ -77,7 +77,8 @@ function normalizeAdvanced(raw: unknown): DownloadAdvancedOptions {
   const cn = o.container;
   const container =
     cn === 'default' || cn === 'mp4' || cn === 'webm' || cn === 'mkv' ? cn : d.container;
-  const codec = cd === 'copy' || cd === 'h264' || cd === 'vp9' ? cd : d.codec;
+  const codec =
+    cd === 'copy' || cd === 'h264' || cd === 'vp9' || cd === 'hevc' || cd === 'av1' ? cd : d.codec;
   const bitrate =
     br === 'auto' || br === '1M' || br === '3M' || br === '5M' || br === '8M' ? br : d.bitrate;
   const embedMetadata =
@@ -376,6 +377,8 @@ export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, do
                   <option value="copy">{fa.input.advancedOptCopy}</option>
                   <option value="h264">{fa.input.advancedOptH264}</option>
                   <option value="vp9">{fa.input.advancedOptVp9}</option>
+                  <option value="hevc">{fa.input.advancedOptHevc}</option>
+                  <option value="av1">{fa.input.advancedOptAv1}</option>
                 </select>
               </div>
               <div className="advanced-popover-row">
