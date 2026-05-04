@@ -425,8 +425,7 @@ jobs:
           VIDEO_FMTSEL="$QUALITY_OPT"
           MKV_EX=""
           if [ "$MERGE_FORMAT" = "mkv" ]; then
-            VIDEO_FMTSEL="($QUALITY_OPT)+mergeall[vcodec=none]"
-            MKV_EX="--audio-multistreams --embed-subs --sub-langs all"
+            MKV_EX="--embed-subs --sub-langs all"
           fi
           
           if [ "$FORMAT" = "mp3" ] || [ "$QUALITY" = "audio" ]; then
