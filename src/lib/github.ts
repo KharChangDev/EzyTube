@@ -363,30 +363,42 @@ jobs:
           mkdir -p downloads/.tmp
           export TMPDIR="\${{ github.workspace }}/downloads/.tmp"
           
+          MERGE_FORMAT="$FORMAT"
+          if [ "$CONTAINER" != "default" ] && [ -n "$CONTAINER" ]; then
+            case "$CONTAINER" in
+              mp4|webm|mkv) MERGE_FORMAT="$CONTAINER" ;;
+            esac
+          fi
+          
+          USE_MP4_LADDER=0
+          if [ "$MERGE_FORMAT" = "mp4" ]; then
+            USE_MP4_LADDER=1
+          fi
+          
           case "$QUALITY" in
             "best")
-              if [ "$FORMAT" = "mp4" ]; then
+              if [ "$USE_MP4_LADDER" = "1" ]; then
                 QUALITY_OPT="bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
               else
                 QUALITY_OPT="bestvideo+bestaudio/best"
               fi
               ;;
             "1080p")
-              if [ "$FORMAT" = "mp4" ]; then
+              if [ "$USE_MP4_LADDER" = "1" ]; then
                 QUALITY_OPT="bestvideo[vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1][height<=1080]+bestaudio/bestvideo[height<=1080][ext=mp4]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
               else
                 QUALITY_OPT="bestvideo[height<=1080]+bestaudio/best[height<=1080]"
               fi
               ;;
             "720p")
-              if [ "$FORMAT" = "mp4" ]; then
+              if [ "$USE_MP4_LADDER" = "1" ]; then
                 QUALITY_OPT="bestvideo[vcodec^=avc1][height<=720]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1][height<=720]+bestaudio/bestvideo[height<=720][ext=mp4]+bestaudio/bestvideo[height<=720]+bestaudio/best[height<=720]"
               else
                 QUALITY_OPT="bestvideo[height<=720]+bestaudio/best[height<=720]"
               fi
               ;;
             "480p")
-              if [ "$FORMAT" = "mp4" ]; then
+              if [ "$USE_MP4_LADDER" = "1" ]; then
                 QUALITY_OPT="bestvideo[vcodec^=avc1][height<=480]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]/worst"
               else
                 QUALITY_OPT="bestvideo[height<=480]+bestaudio/best[height<=480]/worst"
@@ -410,17 +422,10 @@ jobs:
           [ "$EMBED_METADATA" = "true" ] && EM1="--embed-metadata" || true
           [ "$EMBED_THUMBNAIL" = "true" ] && EM2="--embed-thumbnail" || true
           
-          MERGE_FORMAT="$FORMAT"
-          if [ "$CONTAINER" != "default" ] && [ -n "$CONTAINER" ]; then
-            case "$CONTAINER" in
-              mp4|webm|mkv) MERGE_FORMAT="$CONTAINER" ;;
-            esac
-          fi
-          
           VIDEO_FMTSEL="$QUALITY_OPT"
           MKV_EX=""
           if [ "$MERGE_FORMAT" = "mkv" ]; then
-            VIDEO_FMTSEL='bestvideo*+mergeall[vcodec=none]/'"$QUALITY_OPT"
+            VIDEO_FMTSEL="($QUALITY_OPT)+mergeall[vcodec=none]"
             MKV_EX="--audio-multistreams --embed-subs --sub-langs all"
           fi
           
