@@ -511,11 +511,11 @@ jobs:
                   ffmpeg -y -hide_banner -loglevel error -i "$TARGET" -map 0:v:0 -map 0:a? -map 0:s? -map 0:v:1? -map_metadata 0 -c:v:0 libvpx-vp9 $VEXTRA -c:v:1 copy -c:a copy -c:s copy -disposition:v:1 attached_pic "$TMP"
                 elif [ "$CODEC" = "hevc" ]; then
                   case "$BITRATE" in
-                    1M) VEXTRA="-b:v 1M -maxrate 1M -bufsize 2M -tag:v hvc1" ;;
-                    3M) VEXTRA="-b:v 3M -maxrate 3M -bufsize 6M -tag:v hvc1" ;;
-                    5M) VEXTRA="-b:v 5M -maxrate 5M -bufsize 10M -tag:v hvc1" ;;
-                    8M) VEXTRA="-b:v 8M -maxrate 8M -bufsize 16M -tag:v hvc1" ;;
-                    *) VEXTRA="-preset medium -crf 28 -tag:v hvc1" ;;
+                    1M) VEXTRA="-b:v 1M -maxrate 1M -bufsize 2M -tag:v:0 hvc1" ;;
+                    3M) VEXTRA="-b:v 3M -maxrate 3M -bufsize 6M -tag:v:0 hvc1" ;;
+                    5M) VEXTRA="-b:v 5M -maxrate 5M -bufsize 10M -tag:v:0 hvc1" ;;
+                    8M) VEXTRA="-b:v 8M -maxrate 8M -bufsize 16M -tag:v:0 hvc1" ;;
+                    *) VEXTRA="-preset medium -crf 28 -tag:v:0 hvc1" ;;
                   esac
                   ffmpeg -y -hide_banner -loglevel error -i "$TARGET" -map 0:v:0 -map 0:a? -map 0:s? -map 0:v:1? -map_metadata 0 -c:v:0 libx265 $VEXTRA -c:v:1 copy -c:a copy -c:s copy -disposition:v:1 attached_pic "$TMP"
                 elif [ "$CODEC" = "av1" ]; then
