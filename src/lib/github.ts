@@ -423,10 +423,7 @@ jobs:
           [ "$EMBED_THUMBNAIL" = "true" ] && EM2="--embed-thumbnail" || true
           
           VIDEO_FMTSEL="$QUALITY_OPT"
-          MKV_EX=""
-          if [ "$MERGE_FORMAT" = "mkv" ]; then
-            MKV_EX="--embed-subs --sub-langs all"
-          fi
+          VIDEO_EX="--embed-subs --sub-langs all"
           
           if [ "$FORMAT" = "mp3" ] || [ "$QUALITY" = "audio" ]; then
             OUTPUT_TEMPLATE="downloads/%(title)s.%(ext)s"
@@ -460,7 +457,7 @@ jobs:
               --convert-thumbnails jpg \\
               $EM1 \\
               $EM2 \\
-              $MKV_EX \\
+              $VIDEO_EX \\
               --cookies cookies.txt \\
               --js-runtimes node \\
               --retries 3 \\
@@ -478,7 +475,7 @@ jobs:
               --convert-thumbnails jpg \\
               $EM1 \\
               $EM2 \\
-              $MKV_EX \\
+              $VIDEO_EX \\
               --cookies cookies.txt \\
               --js-runtimes node \\
               "$URL"
