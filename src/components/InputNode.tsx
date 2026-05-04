@@ -41,7 +41,7 @@ const QUALITIES = [
   { value: '480p', label: '480P' },
 ] as const;
 const COOKIE_HASH_KEY = 'cns_cookie_hash_v1';
-const ADVANCED_STORAGE_KEY = 'cns_advanced_download_v1';
+const ADVANCED_STORAGE_KEY = 'cns_advanced_download_v2';
 
 function parseSingleUrl(raw: string): string | null {
   const t = raw.trim();
@@ -91,11 +91,7 @@ function normalizeAdvanced(raw: unknown): DownloadAdvancedOptions {
     cd === 'copy' || cd === 'h264' || cd === 'vp9' || cd === 'hevc' || cd === 'av1' ? cd : d.codec;
   const bitrate =
     br === 'auto' || br === '1M' || br === '3M' || br === '5M' || br === '8M' ? br : d.bitrate;
-  const embedMetadata =
-    typeof o.embedMetadata === 'boolean' ? o.embedMetadata : d.embedMetadata;
-  const embedThumbnail =
-    typeof o.embedThumbnail === 'boolean' ? o.embedThumbnail : d.embedThumbnail;
-  return { container, codec, bitrate, embedMetadata, embedThumbnail };
+  return { container, codec, bitrate };
 }
 
 function loadAdvancedFromStorage(): DownloadAdvancedOptions {
@@ -116,7 +112,7 @@ function saveAdvancedToStorage(a: DownloadAdvancedOptions) {
 }
 
 function advancedSubmitKey(a: DownloadAdvancedOptions): string {
-  return `${a.container}|${a.codec}|${a.bitrate}|${a.embedMetadata ? 1 : 0}|${a.embedThumbnail ? 1 : 0}`;
+  return `${a.container}|${a.codec}|${a.bitrate}`;
 }
 
 export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, downloadBusy }: InputNodeProps) {
@@ -484,32 +480,6 @@ export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, do
                   <option value="5M">5M</option>
                   <option value="8M">8M</option>
                 </select>
-              </div>
-              <div className="advanced-popover-row">
-                <button
-                  type="button"
-                  className={cn('advanced-toggle', advanced.embedMetadata && 'on')}
-                  onClick={() =>
-                    setAdvanced((a) => ({ ...a, embedMetadata: !a.embedMetadata }))
-                  }
-                  disabled={formLocked}
-                >
-                  <span className="advanced-toggle-label">{fa.input.advancedEmbedMeta}</span>
-                  <span className="advanced-toggle-knob" aria-hidden />
-                </button>
-              </div>
-              <div className="advanced-popover-row">
-                <button
-                  type="button"
-                  className={cn('advanced-toggle', advanced.embedThumbnail && 'on')}
-                  onClick={() =>
-                    setAdvanced((a) => ({ ...a, embedThumbnail: !a.embedThumbnail }))
-                  }
-                  disabled={formLocked}
-                >
-                  <span className="advanced-toggle-label">{fa.input.advancedEmbedThumb}</span>
-                  <span className="advanced-toggle-knob" aria-hidden />
-                </button>
               </div>
             </div>
           )}

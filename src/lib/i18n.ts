@@ -12,8 +12,6 @@ export const fa = {
     advancedOptContainerDefault: 'پیش‌فرض (همان فرمت)',
     advancedCodec: 'کدک',
     advancedBitrate: 'بیت‌ریت',
-    advancedEmbedMeta: 'جاسازی متادیتا',
-    advancedEmbedThumb: 'جاسازی تامنیل',
     advancedOptCopy: 'بدون تبدیل مجدد',
     advancedOptAutoBr: 'خودکار',
     advancedOptH264: 'H.264',

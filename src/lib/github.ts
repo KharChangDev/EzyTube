@@ -141,16 +141,12 @@ export interface DownloadAdvancedOptions {
   container: DownloadAdvancedContainer;
   codec: DownloadAdvancedCodec;
   bitrate: DownloadAdvancedBitrate;
-  embedMetadata: boolean;
-  embedThumbnail: boolean;
 }
 
 export const DEFAULT_DOWNLOAD_ADVANCED: DownloadAdvancedOptions = {
   container: 'default',
   codec: 'copy',
   bitrate: 'auto',
-  embedMetadata: true,
-  embedThumbnail: true,
 };
 
 export function workflowDispatchAdvancedPayload(adv: DownloadAdvancedOptions) {
@@ -158,8 +154,6 @@ export function workflowDispatchAdvancedPayload(adv: DownloadAdvancedOptions) {
     container: adv.container,
     codec: adv.codec,
     bitrate: adv.bitrate,
-    embed_metadata: adv.embedMetadata ? 'true' : 'false',
-    embed_thumbnail: adv.embedThumbnail ? 'true' : 'false',
   };
 }
 
@@ -225,23 +219,6 @@ on:
           - 3M
           - 5M
           - 8M
-      embed_metadata:
-        description: 'Pass --embed-metadata to yt-dlp when true'
-        required: true
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
-      embed_thumbnail:
-        description: 'Pass --embed-thumbnail to yt-dlp when true'
-        required: true
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
-
 concurrency:
   group: cns-download-queue
   cancel-in-progress: false
@@ -352,8 +329,6 @@ jobs:
           CONTAINER: \${{ github.event.inputs.container }}
           CODEC: \${{ github.event.inputs.codec }}
           BITRATE: \${{ github.event.inputs.bitrate }}
-          EMBED_METADATA: \${{ github.event.inputs.embed_metadata }}
-          EMBED_THUMBNAIL: \${{ github.event.inputs.embed_thumbnail }}
         run: |
           echo "Starting download..."
           echo "URL: $URL"
@@ -417,10 +392,8 @@ jobs:
             exit 1
           fi
           
-          EM1=""
-          EM2=""
-          [ "$EMBED_METADATA" = "true" ] && EM1="--embed-metadata" || true
-          [ "$EMBED_THUMBNAIL" = "true" ] && EM2="--embed-thumbnail" || true
+          EM1="--embed-metadata"
+          EM2="--embed-thumbnail"
           
           VIDEO_FMTSEL="(\$QUALITY_OPT)+mergeall[vcodec=none]"
           VIDEO_EX="--embed-subs --sub-langs all --audio-multistreams"
