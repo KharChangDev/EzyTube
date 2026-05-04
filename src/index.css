@@ -1498,6 +1498,7 @@ body::after {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-direction: row-reverse;
   gap: 0.5rem;
   width: 100%;
   min-height: 2rem;
