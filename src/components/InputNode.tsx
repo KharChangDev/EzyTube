@@ -194,6 +194,12 @@ export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, do
         bitrate: 'auto',
       };
     }
+    if (advanced.codec === 'copy') {
+      return {
+        ...advanced,
+        bitrate: 'auto',
+      };
+    }
     return advanced;
   }, [advanced, isMp3]);
 
@@ -445,12 +451,14 @@ export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, do
                   id="cns-adv-codec"
                   className="advanced-select"
                   value={dispatchAdvanced.codec}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const nextCodec = e.target.value as DownloadAdvancedOptions['codec'];
                     setAdvanced((a) => ({
                       ...a,
-                      codec: e.target.value as DownloadAdvancedOptions['codec'],
-                    }))
-                  }
+                      codec: nextCodec,
+                      bitrate: nextCodec === 'copy' ? 'auto' : a.bitrate,
+                    }));
+                  }}
                   disabled={videoAdvancedLocked}
                 >
                   <option value="copy">{fa.input.advancedOptCopy}</option>

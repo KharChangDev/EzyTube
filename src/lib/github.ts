@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import DOWNLOAD_WORKFLOW_YML from '../../.github/workflows/download.yml?raw';
 
 const API_BASE = 'https://api.github.com';
 const SECURE_TOKEN_PLACEHOLDER = '__cns_secure_token__';
@@ -158,7 +159,7 @@ export function workflowDispatchAdvancedPayload(adv: DownloadAdvancedOptions) {
 }
 
 // Workflow YAML content embedded for auto-setup
-const WORKFLOW_YML = `name: CNS Download Video
+const WORKFLOW_YML_LEGACY = `name: CNS Download Video
 
 on:
   workflow_dispatch:
@@ -394,6 +395,10 @@ jobs:
           
           EM1="--embed-metadata"
           EM2="--embed-thumbnail"
+          if [ "$MERGE_FORMAT" = "webm" ]; then
+            EM2=""
+            echo "INFO: skipping embed-thumbnail for webm (yt-dlp/ffmpeg unsupported); keeping JPG sidecar"
+          fi
           
           VIDEO_FMTSEL="($QUALITY_OPT)+mergeall[vcodec=none]"
           if [ "$MERGE_FORMAT" = "webm" ]; then
@@ -690,6 +695,8 @@ jobs:
             git push || true
           fi
 `;
+void WORKFLOW_YML_LEGACY;
+const WORKFLOW_YML = DOWNLOAD_WORKFLOW_YML;
 
 export interface DownloadJob {
   id: string;
@@ -1294,6 +1301,41 @@ class GitHubClient {
           await new Promise((resolve) => setTimeout(resolve, wait));
         }
       }
+    }
+    const timeoutLike =
+      (lastErr instanceof Error && /dispatch timeout/i.test(lastErr.message)) ||
+      (lastErr instanceof CNSError && lastErr.code === ErrorCodes.NETWORK_ERROR);
+    if (timeoutLike) {
+      const now = Date.now();
+      try {
+        const runs = await this.getWorkflowRuns();
+        const hasFreshRun = runs.some((run: any) => {
+          const rt = new Date(run?.created_at ?? '').getTime();
+          if (!Number.isFinite(rt)) return false;
+          return now - rt <= 90_000;
+        });
+        if (hasFreshRun) {
+          logger.warn('[GitHub] Dispatch uncertain after retries; fresh run detected, continuing as queued', {
+            error: lastErr,
+            quality,
+            format,
+            advanced,
+          });
+          return {
+            status: 0,
+            dispatchAt: new Date(now).toISOString(),
+            runHint: { afterTs: now - 20000, quality, format },
+          };
+        }
+      } catch (probeErr) {
+        logger.warn('[GitHub] Dispatch uncertain and run probe failed', {
+          error: probeErr,
+          quality,
+          format,
+          advanced,
+        });
+      }
+      throw new CNSError('Dispatch could not be confirmed (network)', ErrorCodes.NETWORK_ERROR, true);
     }
     throw (lastErr instanceof Error ? lastErr : new Error('Workflow dispatch failed'));
   }
