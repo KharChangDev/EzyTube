@@ -49,6 +49,7 @@ const POLL_ACTIVE_MS = 5000;
 const POLL_IDLE_MS = 10000;
 const POLL_BACKOFF_MS = 20000;
 const JOB_FETCH_CONCURRENCY = 4;
+const SUCCESS_ORPHAN_HIDE_MS = 5 * 60 * 1000;
 
 function isActiveJobStatus(s: DownloadJob['status']) {
   return s === 'pending' || s === 'running';
@@ -536,7 +537,7 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
             ) {
               const heartbeat = liveStep
                 ? persianStepLabel(liveStep)
-                : '...در حال دانلود';
+                : 'درحال دانلود...';
               logs = appendLog(
                 logs,
                 `[${new Date().toLocaleTimeString('fa-IR')}] ${heartbeat}`
@@ -719,6 +720,12 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
         if (candidate) {
           usedArchivePaths.add(candidate.path);
           matchedArchive = candidate;
+        }
+        if (!matchedArchive) {
+          const ageMs = Date.now() - jobTime;
+          if (Number.isFinite(ageMs) && ageMs > SUCCESS_ORPHAN_HIDE_MS) {
+            continue;
+          }
         }
       }
       result.push({
@@ -1025,7 +1032,7 @@ const ResultCard = memo(function ResultCard({
                 <Download size={12} />
               )}
               <span dir="auto">
-                {archiveDownloading === archive.path ? '...در حال دانلود' : 'دانلود'}
+                {archiveDownloading === archive.path ? 'درحال دانلود...' : 'دانلود'}
               </span>
             </button>
           )}
