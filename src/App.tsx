@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Settings, AlertCircle } from 'lucide-react';
+import { Settings, AlertCircle, X } from 'lucide-react';
 import { fa } from './lib/i18n';
 import { github, DownloadJob } from './lib/github';
 import { logger } from './lib/logger';
@@ -11,6 +11,7 @@ import { MatrixRain } from './components/MatrixRain';
 import { AsciiLogo } from './components/AsciiLogo';
 import { useArchive } from './lib/useArchive';
 import { toPersianErrorMessage } from './lib/errors';
+import { subscribeUserToast } from './lib/userToast';
 
 const JOBS_STORAGE_KEY = 'cns_download_jobs';
 const MAX_STORED_JOBS = 30;
@@ -65,9 +66,30 @@ function App() {
   const [hasConfig, setHasConfig] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; variant: 'error' | 'info' } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const jobsRef = useRef(jobs);
   const persistTimerRef = useRef<number | null>(null);
   jobsRef.current = jobs;
+
+  const dismissToast = useCallback(() => {
+    if (toastTimerRef.current != null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    setToast(null);
+  }, []);
+
+  useEffect(() => {
+    return subscribeUserToast(({ message, variant }) => {
+      if (toastTimerRef.current != null) window.clearTimeout(toastTimerRef.current);
+      setToast({ message, variant });
+      toastTimerRef.current = window.setTimeout(() => {
+        setToast(null);
+        toastTimerRef.current = null;
+      }, 16000);
+    });
+  }, []);
 
   const archive = useArchive({ enabled: hasConfig });
 
@@ -271,6 +293,35 @@ function App() {
         }}
         onConfigChanged={() => setHasConfig(!!github.getConfig())}
       />
+
+      {toast && (
+        <div
+          className="fixed inset-x-3 bottom-4 z-[20050] max-w-lg mx-auto pointer-events-auto"
+          role="status"
+          aria-live="polite"
+        >
+          <div
+            className={cn(
+              'flex gap-2 items-start rounded-md border px-3 py-2.5 shadow-lg backdrop-blur-sm',
+              toast.variant === 'error'
+                ? 'border-cns-warning/55 bg-black/88 text-cns-warning'
+                : 'border-cns-line bg-black/88 text-cns-text-bright'
+            )}
+          >
+            <p className="flex-1 text-sm leading-relaxed whitespace-pre-line pt-0.5" dir="auto">
+              {toast.message}
+            </p>
+            <button
+              type="button"
+              onClick={dismissToast}
+              className="shrink-0 p-1 rounded opacity-80 hover:opacity-100 hover:bg-white/10"
+              aria-label="بستن"
+            >
+              <X size={16} strokeWidth={2} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
