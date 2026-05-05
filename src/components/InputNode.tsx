@@ -18,6 +18,7 @@ import { cn } from '../lib/utils';
 import { toPersianErrorMessage } from '../lib/errors';
 import { logger } from '../lib/logger';
 import { fa } from '../lib/i18n';
+import type { ArchiveItem } from '../lib/useArchive';
 
 type AdvancedPopoverPanel = null | 'open' | 'closing';
 
@@ -27,6 +28,7 @@ interface InputNodeProps {
   hasActiveJob: boolean;
   disabled?: boolean;
   downloadBusy?: boolean;
+  archiveItems?: ArchiveItem[];
 }
 
 const FORMATS = [
@@ -52,6 +54,30 @@ function parseSingleUrl(raw: string): string | null {
     return u.href;
   } catch {
     return null;
+  }
+}
+
+function urlContentKey(raw: string): string {
+  try {
+    const u = new URL(raw.trim());
+    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host === 'youtu.be') {
+      const id = u.pathname.split('/').filter(Boolean)[0] || '';
+      return id ? `yt:${id}` : `url:${u.origin}${u.pathname}${u.search}`;
+    }
+    if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
+      if (u.pathname === '/watch') {
+        const v = u.searchParams.get('v') || '';
+        if (v) return `yt:${v}`;
+      }
+      const p = u.pathname.split('/').filter(Boolean);
+      if (p[0] === 'shorts' && p[1]) return `yt:${p[1]}`;
+      if (p[0] === 'live' && p[1]) return `yt:${p[1]}`;
+    }
+    u.hash = '';
+    return `url:${u.toString()}`;
+  } catch {
+    return `raw:${raw.trim()}`;
   }
 }
 
@@ -115,7 +141,7 @@ function advancedSubmitKey(a: DownloadAdvancedOptions): string {
   return `${a.container}|${a.codec}|${a.bitrate}`;
 }
 
-export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, downloadBusy }: InputNodeProps) {
+export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, downloadBusy, archiveItems = [] }: InputNodeProps) {
   const [text, setText] = useState('');
   const [quality, setQuality] = useState<string>('best');
   const [format, setFormat] = useState<string>('mp4');
@@ -209,10 +235,25 @@ export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, do
       setError('یک لینک https معتبر وارد کنید (بدون چند لینک یا خط جدید)');
       return;
     }
+    const currentKey = urlContentKey(url);
+    const exists = archiveItems.some((a) => {
+      const original = a.metadata?.original_url;
+      if (!original) return false;
+      return urlContentKey(original) === currentKey;
+    });
+    if (exists) {
+      setError('این ویدیو قبلا دانلود شده و داخل آرشیو موجود است.');
+      return;
+    }
 
     const config = github.getConfig();
     if (!config) {
       setError('توکن گیت‌هاب تنظیم نشده است');
+      return;
+    }
+    const net = await github.probeNetwork();
+    if (!net.ok) {
+      setError('اتصال شبکه به GitHub برقرار نیست. فایروال/ DNS یا پروکسی سیستم را بررسی کنید.');
       return;
     }
 
