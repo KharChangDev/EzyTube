@@ -395,7 +395,10 @@ jobs:
           EM1="--embed-metadata"
           EM2="--embed-thumbnail"
           
-          VIDEO_FMTSEL="(\$QUALITY_OPT)+mergeall[vcodec=none]"
+          VIDEO_FMTSEL="($QUALITY_OPT)+mergeall[vcodec=none]"
+          if [ "$MERGE_FORMAT" = "webm" ]; then
+            VIDEO_FMTSEL="($QUALITY_OPT)+mergeall[vcodec=none][ext=webm]/$QUALITY_OPT"
+          fi
           VIDEO_EX="--embed-subs --sub-langs all --audio-multistreams"
           
           if [ "$FORMAT" = "mp3" ] || [ "$QUALITY" = "audio" ]; then
