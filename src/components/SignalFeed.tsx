@@ -330,6 +330,45 @@ interface UnifiedCard {
   sortAt: number;
 }
 
+function normalizeUrlLoose(v: string | undefined): string {
+  if (!v) return '';
+  try {
+    const u = new URL(v);
+    u.hash = '';
+    return u.toString();
+  } catch {
+    return v.trim();
+  }
+}
+
+function findArchiveForJob(job: DownloadJob, items: ArchiveItem[], used: Set<string>): ArchiveItem | undefined {
+  const jobTime = new Date(job.createdAt).getTime();
+  const jobUrl = normalizeUrlLoose(job.url);
+  const byUrl = items.find((a) => {
+    if (used.has(a.path)) return false;
+    const src = normalizeUrlLoose(a.metadata?.original_url);
+    if (!src || !jobUrl) return false;
+    if (src !== jobUrl) return false;
+    const at = a.committed_at ?? 0;
+    return at >= jobTime - 5_000 && at <= jobTime + 30 * 60_000;
+  });
+  if (byUrl) return byUrl;
+
+  const jt = (job.meta?.title || '').trim().toLowerCase();
+  const jc = (job.meta?.channel || '').trim().toLowerCase();
+  if (!jt) return undefined;
+  return items.find((a) => {
+    if (used.has(a.path)) return false;
+    const at = a.committed_at ?? 0;
+    if (!(at >= jobTime - 5_000 && at <= jobTime + 30 * 60_000)) return false;
+    const t = (a.metadata?.title || '').trim().toLowerCase();
+    const c = (a.metadata?.uploader || '').trim().toLowerCase();
+    if (!t || t !== jt) return false;
+    if (jc && c && c !== jc) return false;
+    return true;
+  });
+}
+
 function urlSlug(url: string): string {
   try {
     const u = new URL(url);
@@ -709,19 +748,21 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
 
     for (const job of sortedJobs) {
       let matchedArchive: ArchiveItem | undefined;
+      const candidate = findArchiveForJob(job, sortedArchive, usedArchivePaths);
+      if (candidate) {
+        matchedArchive = candidate;
+      }
+      if (job.status === 'pending' || job.status === 'running') {
+        if (matchedArchive) {
+          continue;
+        }
+      }
       if (job.status === 'success') {
-        const jobTime = new Date(job.createdAt).getTime();
-        const candidate = sortedArchive.find(
-          (a) =>
-            !usedArchivePaths.has(a.path) &&
-            (a.committed_at ?? 0) >= jobTime - 5_000 &&
-            (a.committed_at ?? 0) <= jobTime + 30 * 60_000
-        );
-        if (candidate) {
-          usedArchivePaths.add(candidate.path);
-          matchedArchive = candidate;
+        if (matchedArchive) {
+          usedArchivePaths.add(matchedArchive.path);
         }
         if (!matchedArchive) {
+          const jobTime = new Date(job.createdAt).getTime();
           const ageMs = Date.now() - jobTime;
           if (Number.isFinite(ageMs) && ageMs > SUCCESS_ORPHAN_HIDE_MS) {
             continue;
