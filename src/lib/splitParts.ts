@@ -2,6 +2,15 @@ export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+export function archiveRepoFolderPathForListing(archiveItemPath: string): string {
+  const norm = archiveItemPath.replace(/\\/g, '/');
+  const baseStem = norm.replace(/\.[^/.]+$/, '');
+  const stemSlash = baseStem.lastIndexOf('/');
+  const stemParent = stemSlash > 0 ? baseStem.slice(0, stemSlash) : '';
+  if (stemParent === 'downloads' || stemParent.startsWith('downloads/')) return stemParent;
+  return 'downloads';
+}
+
 export function partSortKey(name: string): number {
   const mp = name.match(/part(\d{2})\.zip$/i);
   if (mp) return parseInt(mp[1], 10);

@@ -1,4 +1,6 @@
 import { logger } from './logger';
+import { isGithubRateLimitedError, toPersianErrorMessage } from './errors';
+import { showUserToast } from './userToast';
 import DOWNLOAD_WORKFLOW_YML from '../../.github/workflows/download.yml?raw';
 
 const API_BASE = 'https://api.github.com';
@@ -114,16 +116,49 @@ function cookieDomainIsYoutubeOrGoogle(domain: string): boolean {
   );
 }
 
-// Error types for better handling
-export class CNSError extends Error {
-  constructor(
-    message: string,
-    public code: string,
-    public retryable: boolean = false
-  ) {
-    super(message);
-    this.name = 'CNSError';
+export type GitHubRateLimitMeta = {
+  resetUtcMs: number | null;
+  retryAfterSec: number | null;
+};
+
+export function parseGithubRateLimitHeaders(response: Response): GitHubRateLimitMeta {
+  const resetRaw = response.headers.get('x-ratelimit-reset');
+  let resetUtcMs: number | null = null;
+  if (resetRaw && /^\d+$/.test(resetRaw.trim())) {
+    const sec = Number(resetRaw.trim());
+    if (Number.isFinite(sec) && sec > 1_000_000_000 && sec < 4_000_000_000) resetUtcMs = sec * 1000;
   }
+  const ra = response.headers.get('retry-after');
+  let retryAfterSec: number | null = null;
+  if (ra) {
+    const n = Number(String(ra).trim());
+    if (Number.isFinite(n) && n > 0 && n < 86400 * 14) retryAfterSec = Math.floor(n);
+  }
+  return { resetUtcMs, retryAfterSec };
+}
+
+function isPrimaryGithubRateLimit(status: number, apiMessage: string, response: Response): boolean {
+  if (status === 429) return true;
+  if (status !== 403) return false;
+  const rem = response.headers.get('x-ratelimit-remaining');
+  if (rem === '0') return true;
+  const m = apiMessage.toLowerCase();
+  return (
+    m.includes('rate limit') ||
+    m.includes('api rate limit exceeded') ||
+    m.includes('abuse detection mechanism') ||
+    m.includes('secondary rate limit') ||
+    m.includes('too many requests')
+  );
+}
+
+let githubRateLimitToastLast = 0;
+export function toastGithubRateLimitIfAny(err: unknown) {
+  if (!isGithubRateLimitedError(err)) return;
+  const n = Date.now();
+  if (n - githubRateLimitToastLast < 10_000) return;
+  githubRateLimitToastLast = n;
+  showUserToast(toPersianErrorMessage(err), 'error');
 }
 
 export const ErrorCodes = {
@@ -137,6 +172,29 @@ export const ErrorCodes = {
   INVALID_URL: 'INVALID_URL',
   CONFIG_MISSING: 'CONFIG_MISSING',
 } as const;
+
+export class CNSError extends Error {
+  rateLimitMeta?: GitHubRateLimitMeta;
+  constructor(
+    message: string,
+    public code: string,
+    public retryable: boolean = false,
+    rateLimitMeta?: GitHubRateLimitMeta
+  ) {
+    super(message);
+    this.name = 'CNSError';
+    this.rateLimitMeta = rateLimitMeta;
+  }
+}
+
+function makeGithubRateLimitError(status: number, response: Response, apiMessage: string): CNSError {
+  return new CNSError(
+    `Rate limited (${status}): ${apiMessage}`,
+    ErrorCodes.RATE_LIMITED,
+    true,
+    parseGithubRateLimitHeaders(response)
+  );
+}
 
 export type DownloadAdvancedContainer = 'default' | 'mp4' | 'webm' | 'mkv';
 export type DownloadAdvancedCodec = 'copy' | 'h264' | 'vp9' | 'hevc' | 'av1';
@@ -480,6 +538,48 @@ class GitHubClient {
     }
   }
 
+  private rejectFailedGithubApi(
+    response: Response,
+    errorData: Record<string, unknown>,
+    path: string,
+    method: string,
+    attempt: number,
+    retries: number,
+    logLabel: string
+  ): never {
+    const message = (typeof errorData.message === 'string' && errorData.message) || `HTTP ${response.status}`;
+    logGithubApiHttpError(`[GitHub API] HTTP error (${logLabel} request)`, {
+      method,
+      path,
+      status: response.status,
+      attempt: attempt + 1,
+      requestId: response.headers.get('x-github-request-id'),
+      githubMessage: typeof errorData.message === 'string' ? errorData.message : undefined,
+      documentationUrl:
+        typeof errorData.documentation_url === 'string' ? errorData.documentation_url : undefined,
+      errors: errorData.errors,
+    });
+    if (response.status === 401) {
+      throw new CNSError(`Authentication failed: ${message}`, ErrorCodes.AUTH_FAILED, false);
+    }
+    if (response.status === 403) {
+      if (isPrimaryGithubRateLimit(403, message, response)) {
+        throw makeGithubRateLimitError(403, response, message);
+      }
+      throw new CNSError(`Forbidden: ${message}`, ErrorCodes.AUTH_FAILED, false);
+    }
+    if (response.status === 429) {
+      throw makeGithubRateLimitError(429, response, message);
+    }
+    if (response.status === 404) {
+      throw new CNSError(`Not found: ${message}`, ErrorCodes.REPO_NOT_FOUND, false);
+    }
+    if (response.status >= 500) {
+      throw new CNSError(`Server error: ${message}`, ErrorCodes.NETWORK_ERROR, true);
+    }
+    throw new CNSError(`Request failed: ${message}`, ErrorCodes.NETWORK_ERROR, attempt < retries - 1);
+  }
+
   private async requestWithToken(token: string, path: string, options: RequestInit = {}, retries: number = 3): Promise<any> {
     const url = `${API_BASE}${path}`;
     const method = (options.method || 'GET').toUpperCase();
@@ -504,44 +604,7 @@ class GitHubClient {
         }
         if (!response.ok) {
           const errorData = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-          const message = (typeof errorData.message === 'string' && errorData.message) || `HTTP ${response.status}`;
-          logGithubApiHttpError('[GitHub API] HTTP error (token request)', {
-            method: (options.method || 'GET').toUpperCase(),
-            path,
-            status: response.status,
-            attempt: attempt + 1,
-            requestId: response.headers.get('x-github-request-id'),
-            githubMessage: typeof errorData.message === 'string' ? errorData.message : undefined,
-            documentationUrl:
-              typeof errorData.documentation_url === 'string' ? errorData.documentation_url : undefined,
-            errors: errorData.errors,
-          });
-
-          if (response.status === 401) {
-            throw new CNSError(`Authentication failed: ${message}`, ErrorCodes.AUTH_FAILED, false);
-          }
-          if (response.status === 403) {
-            const isRateLimit = String(errorData.message ?? '').includes('rate limit');
-            const resetRaw = response.headers.get('x-ratelimit-reset');
-            const resetTs = resetRaw && /^\d+$/.test(resetRaw) ? Number(resetRaw) * 1000 : null;
-            const retryHint =
-              isRateLimit && resetTs
-                ? ` Retry after ${new Date(resetTs).toISOString()}.`
-                : '';
-            throw new CNSError(
-              isRateLimit ? `Rate limited: ${message}.${retryHint}` : `Forbidden: ${message}`,
-              isRateLimit ? ErrorCodes.RATE_LIMITED : ErrorCodes.AUTH_FAILED,
-              isRateLimit
-            );
-          }
-          if (response.status === 404) {
-            throw new CNSError(`Not found: ${message}`, ErrorCodes.REPO_NOT_FOUND, false);
-          }
-          if (response.status >= 500) {
-            throw new CNSError(`Server error: ${message}`, ErrorCodes.NETWORK_ERROR, true);
-          }
-
-          throw new CNSError(`Request failed: ${message}`, ErrorCodes.NETWORK_ERROR, attempt < retries - 1);
+          this.rejectFailedGithubApi(response, errorData, path, method, attempt, retries, 'token');
         }
 
         if (response.status === 204) {
@@ -596,44 +659,7 @@ class GitHubClient {
         }
         if (!response.ok) {
           const errorData = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-          const message = (typeof errorData.message === 'string' && errorData.message) || `HTTP ${response.status}`;
-          logGithubApiHttpError('[GitHub API] HTTP error (config request)', {
-            method: (options.method || 'GET').toUpperCase(),
-            path,
-            status: response.status,
-            attempt: attempt + 1,
-            requestId: response.headers.get('x-github-request-id'),
-            githubMessage: typeof errorData.message === 'string' ? errorData.message : undefined,
-            documentationUrl:
-              typeof errorData.documentation_url === 'string' ? errorData.documentation_url : undefined,
-            errors: errorData.errors,
-          });
-
-          if (response.status === 401) {
-            throw new CNSError(`Authentication failed: ${message}`, ErrorCodes.AUTH_FAILED, false);
-          }
-          if (response.status === 403) {
-            const isRateLimit = String(errorData.message ?? '').includes('rate limit');
-            const resetRaw = response.headers.get('x-ratelimit-reset');
-            const resetTs = resetRaw && /^\d+$/.test(resetRaw) ? Number(resetRaw) * 1000 : null;
-            const retryHint =
-              isRateLimit && resetTs
-                ? ` Retry after ${new Date(resetTs).toISOString()}.`
-                : '';
-            throw new CNSError(
-              isRateLimit ? `Rate limited: ${message}.${retryHint}` : `Forbidden: ${message}`,
-              isRateLimit ? ErrorCodes.RATE_LIMITED : ErrorCodes.AUTH_FAILED,
-              isRateLimit
-            );
-          }
-          if (response.status === 404) {
-            throw new CNSError(`Not found: ${message}`, ErrorCodes.REPO_NOT_FOUND, false);
-          }
-          if (response.status >= 500) {
-            throw new CNSError(`Server error: ${message}`, ErrorCodes.NETWORK_ERROR, true);
-          }
-
-          throw new CNSError(`Request failed: ${message}`, ErrorCodes.NETWORK_ERROR, attempt < retries - 1);
+          this.rejectFailedGithubApi(response, errorData, path, method, attempt, retries, 'config');
         }
 
         if (response.status === 204) {
@@ -745,6 +771,12 @@ class GitHubClient {
 
         if (response.status === 401) {
           throw new CNSError(`Invalid GitHub token: ${message}`, ErrorCodes.AUTH_FAILED, false);
+        }
+        if (
+          (response.status === 403 || response.status === 429) &&
+          isPrimaryGithubRateLimit(response.status, message, response)
+        ) {
+          throw makeGithubRateLimitError(response.status, response, message);
         }
         if (response.status === 404) {
           throw new CNSError(`Workflow not found. Please run auto-setup first.`, ErrorCodes.WORKFLOW_FAILED, false);
@@ -985,7 +1017,9 @@ class GitHubClient {
     try {
       const data = await this.requestCoalesced(topPath, tokenScope);
       top = Array.isArray(data) ? data : [];
-    } catch {
+    } catch (err) {
+      toastGithubRateLimitIfAny(err);
+      logger.warn('[GitHub] downloads root listing failed', { error: err });
       return [];
     }
     const out: any[] = [];
@@ -999,7 +1033,8 @@ class GitHubClient {
         try {
           const d = await this.requestCoalesced(subPath, tokenScope);
           return Array.isArray(d) ? d : [];
-        } catch {
+        } catch (err) {
+          toastGithubRateLimitIfAny(err);
           return [];
         }
       })
@@ -1010,6 +1045,25 @@ class GitHubClient {
       }
     }
     return out;
+  }
+
+  async getDownloadFolderFiles(folderPath: string): Promise<any[]> {
+    const config = this.getConfig();
+    if (!config) throw new Error('GitHub config not set');
+    const norm = folderPath.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (norm.includes('..') || (norm !== 'downloads' && !norm.startsWith('downloads/'))) {
+      return [];
+    }
+    const tokenScope = `${config.owner}/${config.repo}`;
+    const apiPath = `/repos/${config.owner}/${config.repo}/contents/${encodeRepoContentsPath(norm)}`;
+    try {
+      const data = await this.requestCoalesced(apiPath, tokenScope);
+      if (!Array.isArray(data)) return [];
+      return data.filter((e: any) => e?.type === 'file');
+    } catch (err) {
+      toastGithubRateLimitIfAny(err);
+      return [];
+    }
   }
 
   private async loadDownloadsMerged(endpointKey: string, tokenScope: string): Promise<any[]> {
@@ -1069,9 +1123,16 @@ class GitHubClient {
     const cached = this.getHotCache<any[]>(endpointKey, 2500);
     if (cached) {
       if (!this.hotEndpointRefresh.has(endpointKey)) {
-        const refresh = this.loadDownloadsMerged(endpointKey, tokenScope).finally(() =>
-          this.hotEndpointRefresh.delete(endpointKey)
-        );
+        const refresh = this.loadDownloadsMerged(endpointKey, tokenScope)
+          .catch((err) => {
+            toastGithubRateLimitIfAny(err);
+            logger.warn('[GitHub] downloads background refresh failed', {
+              error: err,
+              owner: config.owner,
+              repo: config.repo,
+            });
+          })
+          .finally(() => this.hotEndpointRefresh.delete(endpointKey));
         this.hotEndpointRefresh.set(endpointKey, refresh);
       }
       return cached;
@@ -1080,6 +1141,7 @@ class GitHubClient {
     try {
       return await this.loadDownloadsMerged(endpointKey, tokenScope);
     } catch (err) {
+      toastGithubRateLimitIfAny(err);
       logger.warn('[GitHub] downloads listing failed', {
         error: err,
         owner: config.owner,
@@ -1187,6 +1249,21 @@ class GitHubClient {
         requestId: response.headers.get('x-github-request-id'),
         errors: { shaPrefix: sha.slice(0, 8), filePath: path },
       });
+      let apiMessage = `HTTP ${response.status}`;
+      try {
+        const ct = response.headers.get('content-type') || '';
+        if (ct.includes('json')) {
+          const j = (await response.clone().json().catch(() => null)) as Record<string, unknown> | null;
+          if (j && typeof j.message === 'string') apiMessage = j.message;
+        } else {
+          const t = await response.clone().text();
+          if (t) apiMessage = t.slice(0, 400);
+        }
+      } catch {
+      }
+      if (isPrimaryGithubRateLimit(response.status, apiMessage, response)) {
+        throw makeGithubRateLimitError(response.status, response, apiMessage);
+      }
       throw new Error(`Download failed: HTTP ${response.status}`);
     }
     return response.blob();

@@ -3,7 +3,12 @@ import { Package, Download, RefreshCw } from 'lucide-react';
 import { github } from '../lib/github';
 import { cn } from '../lib/utils';
 import { toPersianErrorMessage } from '../lib/errors';
-import { listSplitPartFiles, type SplitPartDownload } from '../lib/splitParts';
+import { showUserToast } from '../lib/userToast';
+import {
+  archiveRepoFolderPathForListing,
+  listSplitPartFiles,
+  type SplitPartDownload,
+} from '../lib/splitParts';
 import { fa } from '../lib/i18n';
 import { formatSize } from '../lib/useArchive';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
@@ -82,7 +87,7 @@ export function PartsModal({ item, onClose }: PartsModalProps) {
       URL.revokeObjectURL(url);
     } catch (err) {
       logger.error('[PartsModal] part download failed', { error: err, path: part.path, name: part.name });
-      window.alert(toPersianErrorMessage(err));
+      showUserToast(toPersianErrorMessage(err), 'error');
     } finally {
       setDownloadingPart(null);
     }
@@ -98,8 +103,12 @@ export function PartsModal({ item, onClose }: PartsModalProps) {
     const loadParts = async () => {
       setLoading(true);
       try {
-        const downloads = await github.getDownloads(true);
-        setParts(listSplitPartFiles(item.path, downloads));
+        const folder = archiveRepoFolderPathForListing(item.path);
+        let entries = await github.getDownloadFolderFiles(folder);
+        if (entries.length === 0) {
+          entries = await github.getDownloads(true);
+        }
+        setParts(listSplitPartFiles(item.path, entries));
       } catch {
         setParts([]);
       } finally {

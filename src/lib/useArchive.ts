@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { encodeRepoContentsPath, github } from './github';
+import { encodeRepoContentsPath, github, toastGithubRateLimitIfAny } from './github';
 import { toPersianErrorMessage } from './errors';
 import { logger } from './logger';
+import { showUserToast } from './userToast';
 import { listSplitPartFiles } from './splitParts';
 
 const GITHUB_API_BASE = 'https://api.github.com';
@@ -305,6 +306,7 @@ export function useArchive({ refreshKey = 0, pollIntervalMs = 30000, enabled = t
         error: err,
         hadConfig: !!github.getConfig(),
       });
+      toastGithubRateLimitIfAny(err);
       if (!hasLoadedOnceRef.current) setItems([]);
     } finally {
       setIsLoading(false);
@@ -363,7 +365,7 @@ export function useArchive({ refreshKey = 0, pollIntervalMs = 30000, enabled = t
       await loadItems();
     } catch (err) {
       logger.error('[Archive] remove failed', { error: err, path: item.path });
-      window.alert(toPersianErrorMessage(err));
+      showUserToast(toPersianErrorMessage(err), 'error');
     } finally {
       setDeleting(null);
     }
@@ -411,7 +413,7 @@ export function useArchive({ refreshKey = 0, pollIntervalMs = 30000, enabled = t
         URL.revokeObjectURL(url);
       } catch (err) {
         logger.error('[Archive] download blob failed', { error: err, path: item.path, name: item.name });
-        window.alert(toPersianErrorMessage(err));
+        showUserToast(toPersianErrorMessage(err), 'error');
       } finally {
         setDownloading(null);
       }
