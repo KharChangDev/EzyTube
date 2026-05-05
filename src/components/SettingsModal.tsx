@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect, useCallback, type FormEvent } from 'react';
 import { Save, AlertCircle, Zap, Activity, Settings as SettingsIcon } from 'lucide-react';
 import { fa } from '../lib/i18n';
 import { github } from '../lib/github';
@@ -115,6 +115,11 @@ export function SettingsModal({ isOpen, onClose, onConfigChanged }: SettingsModa
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSettingsSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    void handleSave();
   };
 
   const handleClear = () => {
@@ -275,6 +280,7 @@ export function SettingsModal({ isOpen, onClose, onConfigChanged }: SettingsModa
             <div className={cn('settings-tab-panel', activeTab === 'settings' && 'active')} aria-hidden={activeTab !== 'settings'}>
               <div className="grid gap-3 md:grid-cols-2">
                 <section className="settings-section">
+              <form onSubmit={handleSettingsSubmit}>
               <div className="settings-section-head">
                 <span className="settings-step">۱</span>
                 <div>
@@ -329,6 +335,7 @@ export function SettingsModal({ isOpen, onClose, onConfigChanged }: SettingsModa
                   اگر مخزن آماده ندارید، این گزینه مخزن و جریان‌کار دانلود را می‌سازد.
                 </div>
                 <button
+                  type="button"
                   onClick={handleAutoSetup}
                   disabled={isAutoSetup || !token}
                   className={cn(
@@ -355,7 +362,7 @@ export function SettingsModal({ isOpen, onClose, onConfigChanged }: SettingsModa
 
               <div className="grid gap-2 sm:grid-cols-2">
                 <button
-                  onClick={handleSave}
+                  type="submit"
                   disabled={isSaving || !token}
                   className="system-btn w-full justify-center"
                 >
@@ -365,6 +372,7 @@ export function SettingsModal({ isOpen, onClose, onConfigChanged }: SettingsModa
 
                 {hasSavedConfig && (
                   <button
+                    type="button"
                     onClick={handleClear}
                     className="system-btn w-full justify-center border-cns-warning text-cns-warning hover:bg-cns-warning/10"
                   >
@@ -372,6 +380,7 @@ export function SettingsModal({ isOpen, onClose, onConfigChanged }: SettingsModa
                   </button>
                 )}
               </div>
+              </form>
                 </section>
 
                 <section className="settings-section">
