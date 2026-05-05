@@ -1,5 +1,58 @@
+export const GITHUB_RATE_LIMITED_CODE = 'RATE_LIMITED';
+
+export type GithubRateLimitMetaInput = {
+  resetUtcMs: number | null;
+  retryAfterSec: number | null;
+};
+
+export function isGithubRateLimitedError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: string }).code === GITHUB_RATE_LIMITED_CODE;
+}
+
+function rateLimitMetaFromError(err: unknown): GithubRateLimitMetaInput | undefined {
+  if (!isGithubRateLimitedError(err)) return undefined;
+  const m = (err as { rateLimitMeta?: GithubRateLimitMetaInput }).rateLimitMeta;
+  return m;
+}
+
 export const PERSIAN_YOUTUBE_COOKIES_EXPIRED =
   'کوکی‌های یوتیوب منقضی شده‌اند یا یوتیوب آن‌ها را باطل کرده است (مثلاً کوکی در مرورگر چرخیده یا یوتیوب ورود انسان می‌خواهد). از همان مرورگری که داخل youtube.com لاگین هستید cookies.txt تازه بگیرید، در تنظیمات اپ دوباره بچسبانید و ذخیره کنید، بعد همان ویدیو را دوباره دریافت کنید.';
+
+function persianGithubRateLimit(meta?: GithubRateLimitMetaInput): string {
+  const resetUtcMs = meta?.resetUtcMs ?? null;
+  const retryAfterSec = meta?.retryAfterSec ?? null;
+  const now = Date.now();
+  let waitMs = 0;
+  if (retryAfterSec != null && retryAfterSec > 0) {
+    waitMs = Math.max(waitMs, retryAfterSec * 1000);
+  }
+  if (resetUtcMs != null && resetUtcMs > now + 1500) {
+    waitMs = Math.max(waitMs, resetUtcMs - now);
+  }
+  if (waitMs <= 0 && resetUtcMs != null && resetUtcMs > now) {
+    waitMs = Math.max(waitMs, resetUtcMs - now);
+  }
+  const secTotal = Math.max(1, Math.ceil(waitMs / 1000));
+  const nfa = (n: number) => n.toLocaleString('fa-IR');
+  const humanWait =
+    secTotal >= 3600
+      ? `${nfa(Math.round(secTotal / 3600))} ساعت`
+      : secTotal >= 120
+        ? `${nfa(Math.ceil(secTotal / 60))} دقیقه`
+        : `${nfa(secTotal)} ثانیه`;
+  const tz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
+  const resetFa =
+    resetUtcMs != null
+      ? new Date(resetUtcMs).toLocaleString('fa-IR', { timeZone: tz, dateStyle: 'short', timeStyle: 'short' })
+      : '';
+  if (resetFa && waitMs > 2000) {
+    return `زمان تقریبی انتظار: ${humanWait}\nسهمیهٔ تازه حوالی ${resetFa} (${tz}). بعد از آن دوباره امتحان کنید.`;
+  }
+  if (resetFa) {
+    return `زمان تقریبی انتظار: ${humanWait}\nسهمیهٔ تازه از ${resetFa} (${tz}).`;
+  }
+  return `زمان تقریبی انتظار: ${humanWait}\nمحدودیت نرخ گیت‌هاب؛ بعداً دوباره تلاش کنید.`;
+}
 
 function joinLogsForDetection(logs: string[]): string {
   return logs
@@ -34,6 +87,10 @@ export function toPersianErrorMessageFromLogs(logs: string[]): string {
 }
 
 export function toPersianErrorMessage(error: unknown): string {
+  if (isGithubRateLimitedError(error)) {
+    return persianGithubRateLimit(rateLimitMetaFromError(error));
+  }
+
   const raw =
     error instanceof Error
       ? error.message
@@ -75,8 +132,15 @@ export function toPersianErrorMessage(error: unknown): string {
     return 'فایل workflow دانلود در مخزن پیدا نشد. در تنظیمات، راه‌اندازی خودکار را اجرا کنید.';
   }
 
-  if (message.includes('rate limit') || message.includes('rate limited') || message.includes('abuse') || message.includes('403')) {
-    return 'گیت‌هاب موقتاً درخواست‌ها را محدود کرده است. چند دقیقه صبر کنید و دوباره تلاش کنید.';
+  if (
+    message.includes('rate limit') ||
+    message.includes('rate limited') ||
+    message.includes('abuse detection') ||
+    message.includes('secondary rate limit') ||
+    message.includes('api rate limit exceeded') ||
+    message.includes('too many requests')
+  ) {
+    return persianGithubRateLimit();
   }
 
   if (message.includes('repo_not_found') || message.includes('not found') || message.includes('404')) {
