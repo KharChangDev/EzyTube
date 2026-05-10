@@ -32,7 +32,10 @@ function persianGithubRateLimit(meta?: GithubRateLimitMetaInput): string {
   if (waitMs <= 0 && resetUtcMs != null && resetUtcMs > now) {
     waitMs = Math.max(waitMs, resetUtcMs - now);
   }
-  const secTotal = Math.max(1, Math.ceil(waitMs / 1000));
+  if (waitMs <= 0) {
+    return 'محدودیت نرخ گیت‌هاب؛ چند دقیقه صبر کنید و بعد دوباره تلاش کنید.';
+  }
+  const secTotal = Math.ceil(waitMs / 1000);
   const nfa = (n: number) => n.toLocaleString('fa-IR');
   const humanWait =
     secTotal >= 3600
