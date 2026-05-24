@@ -48,5 +48,11 @@ coverage/
 
 # Rust / Tauri
 src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/gen/
+
+# Local notes and scratch files
+AGENTS.md
+docs/
 
 .cursor/

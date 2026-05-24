@@ -10,15 +10,14 @@ import {
 import { ClipboardPaste, Download, SlidersHorizontal } from 'lucide-react';
 import {
   DownloadJob,
-  github,
   DEFAULT_DOWNLOAD_ADVANCED,
   type DownloadAdvancedOptions,
 } from '../lib/github';
 import { cn } from '../lib/utils';
 import { toPersianErrorMessage } from '../lib/errors';
-import { logger } from '../lib/logger';
 import { fa } from '../lib/i18n';
 import type { ArchiveItem } from '../lib/useArchive';
+import { useDownloadSubmit } from '../lib/useDownloadSubmit';
 
 type AdvancedPopoverPanel = null | 'open' | 'closing';
 
@@ -42,7 +41,6 @@ const QUALITIES = [
   { value: '720p', label: '720P' },
   { value: '480p', label: '480P' },
 ] as const;
-const COOKIE_HASH_KEY = 'cns_cookie_hash_v1';
 const ADVANCED_STORAGE_KEY = 'cns_advanced_download_v2';
 
 function parseSingleUrl(raw: string): string | null {
@@ -55,53 +53,6 @@ function parseSingleUrl(raw: string): string | null {
   } catch {
     return null;
   }
-}
-
-function urlContentKey(raw: string): string {
-  try {
-    const u = new URL(raw.trim());
-    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
-    if (host === 'youtu.be') {
-      const id = u.pathname.split('/').filter(Boolean)[0] || '';
-      return id ? `yt:${id}` : `url:${u.origin}${u.pathname}${u.search}`;
-    }
-    if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
-      if (u.pathname === '/watch') {
-        const v = u.searchParams.get('v') || '';
-        if (v) return `yt:${v}`;
-      }
-      const p = u.pathname.split('/').filter(Boolean);
-      if (p[0] === 'shorts' && p[1]) return `yt:${p[1]}`;
-      if (p[0] === 'live' && p[1]) return `yt:${p[1]}`;
-    }
-    u.hash = '';
-    return `url:${u.toString()}`;
-  } catch {
-    return `raw:${raw.trim()}`;
-  }
-}
-
-async function fetchOembed(url: string): Promise<DownloadJob['meta']> {
-  try {
-    const resp = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url)}`);
-    if (!resp.ok) return undefined;
-    const data = await resp.json();
-    if (data?.error) return undefined;
-    return {
-      title: data.title,
-      channel: data.author_name,
-      thumbnail: data.thumbnail_url,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-async function sha1Hex(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(input));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 function normalizeAdvanced(raw: unknown): DownloadAdvancedOptions {
@@ -137,17 +88,12 @@ function saveAdvancedToStorage(a: DownloadAdvancedOptions) {
   }
 }
 
-function advancedSubmitKey(a: DownloadAdvancedOptions): string {
-  return `${a.container}|${a.codec}|${a.bitrate}`;
-}
-
 export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, downloadBusy, archiveItems = [] }: InputNodeProps) {
   const [text, setText] = useState('');
   const [quality, setQuality] = useState<string>('480p');
   const [format, setFormat] = useState<string>('mp4');
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const inFlightRef = useState(() => new Set<string>())[0];
+  const { submitDownload, isSubmitting } = useDownloadSubmit({ onAddPending, onPatchJob });
   const [advanced, setAdvanced] = useState<DownloadAdvancedOptions>(() => loadAdvancedFromStorage());
   const [advancedPanel, setAdvancedPanel] = useState<AdvancedPopoverPanel>(null);
   const advancedWrapRef = useRef<HTMLDivElement | null>(null);
@@ -235,121 +181,19 @@ export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, do
       setError('یک لینک https معتبر وارد کنید (بدون چند لینک یا خط جدید)');
       return;
     }
-    const currentKey = urlContentKey(url);
-    const exists = archiveItems.some((a) => {
-      const original = a.metadata?.original_url;
-      if (!original) return false;
-      return urlContentKey(original) === currentKey;
-    });
-    if (exists) {
-      setError('این ویدیو قبلا دانلود شده و داخل آرشیو موجود است.');
-      return;
-    }
-
-    const config = github.getConfig();
-    if (!config) {
-      setError('توکن گیت‌هاب تنظیم نشده است');
-      return;
-    }
-    const net = await github.probeNetwork();
-    if (!net.ok) {
-      if (net.code === 'AUTH') {
-        setError('توکن گیت‌هاب رد شد (۴۰۱). در تنظیمات دوباره ذخیره کنید.');
-      } else {
-        setError('اتصال شبکه به GitHub برقرار نیست. فایروال/ DNS یا پروکسی سیستم را بررسی کنید.');
-      }
-      return;
-    }
-
-    const effectiveQuality = isMp3 ? 'audio' : quality;
-    const effectiveFormat = isMp3 ? 'mp3' : 'mp4';
-    const adv = dispatchAdvanced;
-    const submitKey = `${url}|${effectiveQuality}|${effectiveFormat}|${advancedSubmitKey(adv)}`;
-    if (inFlightRef.has(submitKey)) return;
-    setIsLoading(true);
     setError(null);
-
     try {
-      logger.info('[Download] Submit started', {
-        format,
-        quality,
-        advanced: adv,
-      });
-      const cookieHealth = github.assessStoredCookies();
-      if (!cookieHealth.ok) {
-        throw new Error(cookieHealth.reason || 'COOKIE_EXPIRED_LOCAL');
-      }
-      const cookies = github.getCookies();
-      if (cookies) {
-        const cookieHash = await sha1Hex(cookies);
-        const uploadedHash = sessionStorage.getItem(COOKIE_HASH_KEY);
-        if (uploadedHash !== cookieHash) {
-          await github.uploadCookies(cookies);
-          sessionStorage.setItem(COOKIE_HASH_KEY, cookieHash);
-        }
-      }
-
-      inFlightRef.add(submitKey);
-      const nowIso = new Date().toISOString();
-      const jobId = crypto.randomUUID();
-      const baseJob: DownloadJob = {
-        id: jobId,
+      await submitDownload({
         url,
-        quality: effectiveQuality,
-        format: effectiveFormat,
-        advanced: { ...adv },
-        status: 'pending',
-        progress: 0,
-        logs: [`[${new Date().toLocaleTimeString('fa-IR')}] صف شد`],
-        createdAt: nowIso,
-        submitKey,
-      };
-      onAddPending(baseJob);
-      const metaTask = fetchOembed(url);
-
-      try {
-        const dispatch = await github.triggerWorkflowFast(url, effectiveQuality, effectiveFormat, adv);
-        const fetchedMeta = await metaTask;
-        const logs = [`[${new Date().toLocaleTimeString('fa-IR')}] صف شد`, `[${new Date().toLocaleTimeString('fa-IR')}] ارسال به گیت‌هاب انجام شد`];
-        onPatchJob(jobId, {
-          dispatchAt: dispatch.dispatchAt,
-          runHint: dispatch.runHint,
-          logs,
-          meta: fetchedMeta,
-        });
-        logger.info('[Download] Workflow dispatched', {
-          format: effectiveFormat,
-          quality: effectiveQuality,
-          advanced: adv,
-        });
-        setText('');
-        logger.info('[Download] Submit finished', {
-          format: effectiveFormat,
-          quality: isMp3 ? 'audio' : quality,
-        });
-      } catch (err) {
-        logger.error('[Download] Dispatch failed', {
-          error: err,
-          format: effectiveFormat,
-          quality: effectiveQuality,
-        });
-        const message = toPersianErrorMessage(err);
-        const fetchedMeta = await metaTask.catch(() => undefined);
-        onPatchJob(jobId, {
-          status: 'failed',
-          progress: 0,
-          logs: [`[${new Date().toLocaleTimeString('fa-IR')}] صف شد`, `[${new Date().toLocaleTimeString('fa-IR')}] ${message}`],
-          meta: fetchedMeta,
-        });
-        setError(`${message}`);
-      } finally {
-        inFlightRef.delete(submitKey);
-      }
+        quality: isMp3 ? 'audio' : quality,
+        format: isMp3 ? 'mp3' : 'mp4',
+        source: 'youtube',
+        advanced: dispatchAdvanced,
+        archiveItems,
+      });
+      setText('');
     } catch (err) {
-      logger.error('[Download] Submit aborted', { error: err });
       setError(toPersianErrorMessage(err));
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -360,7 +204,7 @@ export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, do
     }
   };
 
-  const formLocked = disabled || isLoading || downloadBusy;
+  const formLocked = disabled || isSubmitting || downloadBusy;
 
   const handlePasteFromClipboard = async () => {
     if (formLocked) return;
@@ -545,7 +389,7 @@ export function InputNode({ onAddPending, onPatchJob, hasActiveJob, disabled, do
           className="fetch-button"
         >
           <Download size={16} />
-          <span>{isLoading ? '...در حال دریافت' : 'دریافت'}</span>
+          <span>{isSubmitting ? '...در حال دریافت' : 'دریافت'}</span>
         </button>
 
         <div

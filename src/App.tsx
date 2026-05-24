@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Settings, AlertCircle, X } from 'lucide-react';
+import { Settings, AlertCircle, X, DownloadCloud, Youtube } from 'lucide-react';
 import { fa } from './lib/i18n';
 import { github, DownloadJob } from './lib/github';
 import { logger } from './lib/logger';
 import { cn } from './lib/utils';
 import { InputNode } from './components/InputNode';
 import { SignalFeed } from './components/SignalFeed';
+import { YouTubeFeed } from './components/YouTubeFeed';
 import { SettingsModal } from './components/SettingsModal';
 import { MatrixRain } from './components/MatrixRain';
 import { AsciiLogo } from './components/AsciiLogo';
@@ -14,8 +15,28 @@ import { toPersianErrorMessage } from './lib/errors';
 import { subscribeUserToast } from './lib/userToast';
 
 const JOBS_STORAGE_KEY = 'cns_download_jobs';
+const APP_MODE_STORAGE_KEY = 'cns_app_mode';
 const MAX_STORED_JOBS = 30;
 const MAX_STORED_JOB_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+type AppMode = 'console' | 'youtube-feed';
+
+function loadStoredAppMode(): AppMode {
+  try {
+    return localStorage.getItem(APP_MODE_STORAGE_KEY) === 'youtube-feed'
+      ? 'youtube-feed'
+      : 'console';
+  } catch {
+    return 'console';
+  }
+}
+
+function saveStoredAppMode(mode: AppMode) {
+  try {
+    localStorage.setItem(APP_MODE_STORAGE_KEY, mode);
+  } catch {
+  }
+}
 
 function loadStoredJobs(): DownloadJob[] {
   try {
@@ -63,6 +84,7 @@ function summarizeJobsForSupport(jobs: DownloadJob[]) {
 function App() {
   const [jobs, setJobs] = useState<DownloadJob[]>(loadStoredJobs);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [appMode, setAppMode] = useState<AppMode>(loadStoredAppMode);
   const [hasConfig, setHasConfig] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
@@ -92,6 +114,11 @@ function App() {
   }, []);
 
   const archive = useArchive({ enabled: hasConfig });
+  const isYoutubeFeedMode = appMode === 'youtube-feed';
+
+  useEffect(() => {
+    saveStoredAppMode(appMode);
+  }, [appMode]);
 
   useEffect(() => {
     logger.registerSupportContext(() => ({
@@ -229,30 +256,65 @@ function App() {
       <div className="shell-grid" />
       <div className="shell-glow" />
 
-      <aside className="cookie-warning" dir="rtl">
-        <AlertCircle size={15} />
-        <div>
-          <strong>یادآوری کوکی یوتیوب</strong>
-          <p>
-            یوتیوب هر چند ساعت کوکی‌ها را عوض می‌کند. اگر دانلود گیر کرد یا خطا داد،
-            کوکی‌های جدید را از مرورگر بگیرید و دوباره در تنظیمات وارد کنید.
-          </p>
-        </div>
-      </aside>
+      {!isYoutubeFeedMode && (
+        <aside className="cookie-warning" dir="rtl">
+          <AlertCircle size={15} />
+          <div>
+            <strong>یادآوری کوکی یوتیوب</strong>
+            <p>
+              یوتیوب هر چند ساعت کوکی‌ها را عوض می‌کند. اگر دانلود گیر کرد یا خطا داد،
+              کوکی‌های جدید را از مرورگر بگیرید و دوباره در تنظیمات وارد کنید.
+            </p>
+          </div>
+        </aside>
+      )}
 
-      <div className="relative z-10 mx-auto max-w-3xl">
+      <div className={cn('app-shell relative z-10 mx-auto', isYoutubeFeedMode && 'feed-mode')}>
         <header className="reclip-header">
-          <AsciiLogo />
-          <button
-            type="button"
-            onClick={() => setIsSettingsOpen(true)}
-            className={cn('settings-cog', !hasConfig && 'warn')}
-            aria-label={fa.actions.settings}
-            title={fa.actions.settings}
-          >
-            <Settings size={16} />
-            <span>تنظیمات</span>
-          </button>
+          {!isYoutubeFeedMode && <AsciiLogo />}
+          <div className="app-top-controls">
+            {!hasConfig && !initError && (
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(true)}
+                className="settings-notice-chip"
+                title="تنظیمات لازم است"
+              >
+                <AlertCircle size={13} />
+                <span>تنظیمات لازم است</span>
+              </button>
+            )}
+            <div className="app-mode-switch" role="tablist" aria-label="حالت برنامه">
+              <button
+                type="button"
+                onClick={() => setAppMode('console')}
+                className={cn('app-mode-btn', appMode === 'console' && 'active')}
+                aria-pressed={appMode === 'console'}
+              >
+                <DownloadCloud size={15} />
+                <span>کنسول</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAppMode('youtube-feed')}
+                className={cn('app-mode-btn', isYoutubeFeedMode && 'active')}
+                aria-pressed={isYoutubeFeedMode}
+              >
+                <Youtube size={15} />
+                <span>فید یوتیوب</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className={cn('settings-cog', !hasConfig && 'warn')}
+              aria-label={fa.actions.settings}
+              title={fa.actions.settings}
+            >
+              <Settings size={16} />
+              <span>تنظیمات</span>
+            </button>
+          </div>
         </header>
 
         {initError && (
@@ -273,36 +335,34 @@ function App() {
           </div>
         )}
 
-        {!hasConfig && !initError && (
-          <div className="config-banner" dir="ltr">
-            <AlertCircle size={14} />
-            <span>توکن گیت‌هاب و کوکی‌های یوتیوب را در تنظیمات وارد کنید</span>
-            <button
-              type="button"
-              onClick={() => setIsSettingsOpen(true)}
-              className="config-banner-btn"
-            >
-              <Settings size={12} />
-              <span>{fa.actions.settings}</span>
-            </button>
-          </div>
+        {isYoutubeFeedMode ? (
+          <YouTubeFeed
+            onAddPending={handleAddPendingJob}
+            onPatchJob={handlePatchJob}
+            hasConfig={hasConfig}
+            networkError={networkError}
+            downloadBusy={downloadBusy}
+            archiveItems={archive.items}
+          />
+        ) : (
+          <InputNode
+            onAddPending={handleAddPendingJob}
+            onPatchJob={handlePatchJob}
+            hasActiveJob={downloadBusy}
+            disabled={!hasConfig || !!networkError}
+            downloadBusy={downloadBusy}
+            archiveItems={archive.items}
+          />
         )}
 
-        <InputNode
-          onAddPending={handleAddPendingJob}
-          onPatchJob={handlePatchJob}
-          hasActiveJob={downloadBusy}
-          disabled={!hasConfig || !!networkError}
-          downloadBusy={downloadBusy}
-          archiveItems={archive.items}
-        />
-
-        <SignalFeed
-          jobs={jobs}
-          onUpdate={handleJobUpdate}
-          onRemoveJob={handleJobRemove}
-          archive={archive}
-        />
+        {(!isYoutubeFeedMode || jobs.length > 0 || archive.items.length > 0) && (
+          <SignalFeed
+            jobs={jobs}
+            onUpdate={handleJobUpdate}
+            onRemoveJob={handleJobRemove}
+            archive={archive}
+          />
+        )}
       </div>
 
       <SettingsModal

@@ -459,7 +459,9 @@ class Logger {
   async exportToFile(): Promise<string> {
     const content = this.export();
     const invoke =
-      typeof window.__TAURI__?.invoke === 'function'
+      typeof window.__TAURI__?.core?.invoke === 'function'
+        ? window.__TAURI__!.core.invoke
+        : typeof window.__TAURI__?.invoke === 'function'
         ? window.__TAURI__!.invoke
         : typeof window.__TAURI_INVOKE__ === 'function'
           ? window.__TAURI_INVOKE__

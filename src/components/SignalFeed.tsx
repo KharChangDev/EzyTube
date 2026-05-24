@@ -6,7 +6,6 @@ import {
   FileAudio,
   Package,
   AlertTriangle,
-  Loader2,
   RefreshCw,
 } from 'lucide-react';
 import { fa } from '../lib/i18n';
@@ -800,16 +799,6 @@ export function SignalFeed({ jobs, onUpdate, onRemoveJob, archive }: SignalFeedP
   }, [jobs, archive.items]);
 
   if (cards.length === 0) {
-    if (archive.isLoading && !archive.hasLoadedOnce) {
-      return (
-        <div className="results-empty">
-          <Loader2 size={20} className="animate-spin opacity-70" />
-          <span dir="ltr" className="opacity-70">
-            ...در حال بررسی
-          </span>
-        </div>
-      );
-    }
     return (
       <div className="results-empty">
         <span dir="ltr">لینک یوتیوب را وارد کنید و دکمه دریافت را بزنید</span>

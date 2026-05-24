@@ -199,6 +199,7 @@ function makeGithubRateLimitError(status: number, response: Response, apiMessage
 export type DownloadAdvancedContainer = 'default' | 'mp4' | 'webm' | 'mkv';
 export type DownloadAdvancedCodec = 'copy' | 'h264' | 'vp9' | 'hevc' | 'av1';
 export type DownloadAdvancedBitrate = 'auto' | '1M' | '3M' | '5M' | '8M';
+export type DownloadSource = 'youtube';
 
 export interface DownloadAdvancedOptions {
   container: DownloadAdvancedContainer;
@@ -228,6 +229,7 @@ const WORKFLOW_YML = DOWNLOAD_WORKFLOW_YML;
 export interface DownloadJob {
   id: string;
   url: string;
+  source?: DownloadSource;
   quality: string;
   format: string;
   advanced?: DownloadAdvancedOptions;
@@ -287,6 +289,7 @@ class GitHubClient {
     | ((command: string, payload?: Record<string, unknown>) => Promise<any>)
     | null {
     if (typeof window === 'undefined') return null;
+    if (typeof window.__TAURI__?.core?.invoke === 'function') return window.__TAURI__.core.invoke;
     if (typeof window.__TAURI__?.invoke === 'function') return window.__TAURI__.invoke;
     if (typeof window.__TAURI_INVOKE__ === 'function') return window.__TAURI_INVOKE__;
     if (typeof window.__TAURI__?.tauri?.invoke === 'function') return window.__TAURI__.tauri.invoke;
@@ -739,7 +742,8 @@ class GitHubClient {
     url: string,
     quality: string,
     format: string,
-    advanced: DownloadAdvancedOptions = DEFAULT_DOWNLOAD_ADVANCED
+    advanced: DownloadAdvancedOptions = DEFAULT_DOWNLOAD_ADVANCED,
+    source: DownloadSource = 'youtube'
   ): Promise<number> {
     const config = this.getConfig();
     if (!config) throw new CNSError('GitHub config not set', ErrorCodes.CONFIG_MISSING, false);
@@ -763,6 +767,7 @@ class GitHubClient {
       targetHost,
       quality,
       format,
+      source,
       advanced,
     });
 
@@ -831,6 +836,7 @@ class GitHubClient {
         targetHost,
         quality,
         format,
+        source,
       });
       return response.status;
     } catch (err) {
@@ -841,6 +847,7 @@ class GitHubClient {
         targetHost,
         quality,
         format,
+        source,
       });
       if (err instanceof CNSError) throw err;
       throw new CNSError(`Network error: ${err instanceof Error ? err.message : 'Unknown error'}`, ErrorCodes.NETWORK_ERROR, true);
@@ -852,9 +859,10 @@ class GitHubClient {
     quality: string,
     format: string,
     advanced: DownloadAdvancedOptions,
+    source: DownloadSource,
     timeoutMs: number
   ): Promise<number> {
-    const run = this.triggerWorkflow(url, quality, format, advanced);
+    const run = this.triggerWorkflow(url, quality, format, advanced, source);
     let timer = 0;
     const timeout = new Promise<number>((_, reject) => {
       timer = window.setTimeout(() => reject(new Error('Dispatch timeout')), timeoutMs);
@@ -870,11 +878,12 @@ class GitHubClient {
     url: string,
     quality: string,
     format: string,
-    advanced: DownloadAdvancedOptions = DEFAULT_DOWNLOAD_ADVANCED
+    advanced: DownloadAdvancedOptions = DEFAULT_DOWNLOAD_ADVANCED,
+    source: DownloadSource = 'youtube'
   ): Promise<{ status: number; dispatchAt: string; runHint: { afterTs: number; quality: string; format: string } }> {
     let lastErr: unknown = null;
     try {
-      const status = await this.triggerWorkflowWithTimeout(url, quality, format, advanced, 12000);
+      const status = await this.triggerWorkflowWithTimeout(url, quality, format, advanced, source, 12000);
       const now = Date.now();
       return {
         status,
